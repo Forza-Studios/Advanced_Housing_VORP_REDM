@@ -513,9 +513,15 @@ function openSaveHouseModal(door) {
                         <div><strong>Model Name:</strong> ${door.modelName || 'Unknown'}</div>
                         <div><strong>Model Hash:</strong> ${door.model}</div>
                         <div><strong>Position:</strong> ${door.x}, ${door.y}, ${door.z}</div>
-                        <div style="margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
-                            <span><strong>Initial Lock State:</strong> <span style="color: #c07070;">🔒 Locked (True)</span></span>
-                            <span><strong>Owner:</strong> <span style="color: var(--accent);">You (Creator)</span></span>
+                        <div style="margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span><strong>Initial Lock State:</strong> <span style="color: #c07070;">🔒 Locked (True)</span></span>
+                                <span><strong>Owner:</strong> <span style="color: var(--accent);">You (Creator)</span></span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span><strong>Blip Sprite:</strong> <span style="color: var(--accent);">1586273744</span></span>
+                                <span><strong>Blip Label:</strong> <span style="color: var(--accent);">&lt;Owner&gt;'s House</span></span>
+                            </div>
                         </div>
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
@@ -555,7 +561,9 @@ function openSaveHouseModal(door) {
             x: door.x,
             y: door.y,
             z: door.z,
-            heading: door.heading || 0.0
+            heading: door.heading || 0.0,
+            blipSprite: 1586273744,
+            blipLabel: "" // Server auto-formats to owner + "'s House"
         };
 
         try {
@@ -583,6 +591,8 @@ function escapeHtml(str) {
 function openEditHouseModal(house) {
     const existing = document.getElementById("editHouseModal");
     if (existing) existing.remove();
+
+    const defaultBlipLabel = house.blipLabel || (house.owner ? (house.owner + "'s House") : "House");
 
     const modal = document.createElement("div");
     modal.id = "editHouseModal";
@@ -624,6 +634,16 @@ function openEditHouseModal(house) {
                             </select>
                         </div>
                     </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Blip Sprite</label>
+                            <input type="number" id="editHouseBlipSprite" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.blipSprite || 1586273744}" />
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Blip Label</label>
+                            <input type="text" id="editHouseBlipLabel" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(defaultBlipLabel)}" />
+                        </div>
+                    </div>
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
                         <div style="color: var(--accent); font-weight: 700;">Door Properties</div>
                         <div><strong>Door Hash:</strong> ${house.doorHash || 'N/A'}</div>
@@ -655,6 +675,8 @@ function openEditHouseModal(house) {
         const price = parseFloat(document.getElementById("editHousePrice").value) || 500;
         const owner = document.getElementById("editHouseOwner").value.trim();
         const locked = parseInt(document.getElementById("editHouseLocked").value);
+        const blipSprite = parseInt(document.getElementById("editHouseBlipSprite").value) || 1586273744;
+        const blipLabel = document.getElementById("editHouseBlipLabel").value.trim();
 
         const payload = {
             id: house.id,
@@ -662,7 +684,9 @@ function openEditHouseModal(house) {
             location: location,
             price: price,
             owner: owner,
-            locked: locked
+            locked: locked,
+            blipSprite: blipSprite,
+            blipLabel: blipLabel
         };
 
         try {

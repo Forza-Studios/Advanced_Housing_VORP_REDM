@@ -57,14 +57,22 @@ CreateThread(function()
             `y` FLOAT NOT NULL,
             `z` FLOAT NOT NULL,
             `heading` FLOAT DEFAULT 0.0,
+            `blipSprite` BIGINT DEFAULT 1586273744,
+            `blipLabel` VARCHAR(128) DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]], {}, function(result)
         print("^2[coi_hm]^7 SQL table `houses` initialized successfully.")
-        -- Migration check for existing table without locked column
+        -- Migration check for existing table without locked, blipSprite, blipLabel columns
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `locked` TINYINT(1) DEFAULT 1;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `blipSprite` BIGINT DEFAULT 1586273744;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `blipLabel` VARCHAR(128) DEFAULT NULL;
         ]], {}, function() end)
     end)
 end)
@@ -119,18 +127,20 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local y = tonumber(data.y) or 0.0
     local z = tonumber(data.z) or 0.0
     local heading = tonumber(data.heading) or 0.0
+    local blipSprite = tonumber(data.blipSprite) or 1586273744
+    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or (owner .. "'s House")
 
     MySQL.insert([[
-        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading
+        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel
     }, function(insertId)
         if insertId then
-            print(("^2[coi_hm]^7 Created new house #%s owned by '%s' (Locked: %s)."):format(insertId, owner, tostring(locked == 1)))
+            print(("^2[coi_hm]^7 Created new house #%s owned by '%s' (Locked: %s, Blip: %s)."):format(insertId, owner, tostring(locked == 1), blipLabel))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("House saved! Owner: %s (Locked: True)"):format(owner),
+                description = ("House saved! Owner: %s (Blip: %s)"):format(owner, blipLabel),
                 type = "success"
             })
             FetchAndSendHouses(-1)
@@ -166,15 +176,17 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     local owner = (data.owner and data.owner ~= "") and data.owner or "Unowned"
     local locked = (data.locked == 1 or data.locked == true or data.locked == "1") and 1 or 0
     local status = (owner ~= "Unowned" and owner ~= "") and "owned" or "available"
+    local blipSprite = tonumber(data.blipSprite) or 1586273744
+    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or ((owner ~= "Unowned" and owner ~= "") and (owner .. "'s House") or "House")
 
     MySQL.query([[
         UPDATE houses
-        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?
+        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?
         WHERE id = ?
     ]], {
-        name, location, price, owner, status, locked, houseId
+        name, location, price, owner, status, locked, blipSprite, blipLabel, houseId
     }, function(result)
-        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Locked: %s)."):format(houseId, owner, tostring(locked == 1)))
+        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Blip: %s)."):format(houseId, owner, blipLabel))
         TriggerClientEvent("ox_lib:notify", src, {
             title = "Housing Manager",
             description = ("House #%s updated successfully!"):format(houseId),

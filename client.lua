@@ -14,6 +14,40 @@ RegisterNetEvent("coi_hm:open", function()
     TriggerServerEvent("coi_hm:requestHouses")
 end)
 
+local HouseBlips = {}
+
+local function ClearHouseBlips()
+    for _, blip in ipairs(HouseBlips) do
+        if DoesBlipExist and DoesBlipExist(blip) then
+            RemoveBlip(blip)
+        end
+    end
+    HouseBlips = {}
+end
+
+local function RefreshHouseBlips()
+    ClearHouseBlips()
+    for _, house in ipairs(LoadedHouses) do
+        local hx = tonumber(house.x)
+        local hy = tonumber(house.y)
+        local hz = tonumber(house.z)
+        if hx and hy and hz then
+            local sprite = tonumber(house.blipSprite) or 1586273744
+            local ownerName = (house.owner and house.owner ~= "" and house.owner ~= "Unowned") and house.owner or nil
+            local defaultLabel = ownerName and (ownerName .. "'s House") or "House"
+            local label = (house.blipLabel and house.blipLabel ~= "") and house.blipLabel or defaultLabel
+
+            -- Create RedM map blip at house coordinates
+            local blip = Citizen.InvokeNative(0x554D9D53F696D002, 1664425300, hx, hy, hz)
+            if blip and blip ~= 0 then
+                SetBlipSprite(blip, sprite, true)
+                Citizen.InvokeNative(0x9CB1A1623062F402, blip, label)
+                table.insert(HouseBlips, blip)
+            end
+        end
+    end
+end
+
 RegisterNetEvent("coi_hm:setHouses", function(houses)
     LoadedHouses = houses or {}
     SendNUIMessage({
@@ -21,6 +55,13 @@ RegisterNetEvent("coi_hm:setHouses", function(houses)
         houses = LoadedHouses
     })
     ApplyAllDoorLocks()
+    RefreshHouseBlips()
+end)
+
+AddEventHandler("onResourceStop", function(resourceName)
+    if GetCurrentResourceName() == resourceName then
+        ClearHouseBlips()
+    end
 end)
 
 RegisterNUICallback("getHouses", function(_, cb)
