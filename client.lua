@@ -23,21 +23,44 @@ RegisterNUICallback("refresh", function(_,cb)
     cb(GetNearestDoorData())
 end)
 
+local function ToPrimitiveNumber(val)
+    if type(val) == "number" then return math.floor(val) end
+    if type(val) == "string" then return math.floor(tonumber(val) or 0) end
+    if type(val) == "boolean" then return val and 1 or 0 end
+    if type(val) == "userdata" then
+        local str = tostring(val)
+        local num = tonumber(str)
+        if num then return math.floor(num) end
+    end
+    return 0
+end
+
+local function ToPrimitiveString(val)
+    if type(val) == "string" then return val end
+    if type(val) == "number" then return tostring(val) end
+    if type(val) == "boolean" then return tostring(val) end
+    if type(val) == "userdata" then
+        local str = tostring(val)
+        local num = tonumber(str)
+        if num then return tostring(num) end
+        return str
+    end
+    return ""
+end
+
 local function SafeGetDoorState(doorHash)
     if not doorHash then return 0 end
-    local doorHashNum = math.floor(tonumber(doorHash) or 0)
+    local doorHashNum = ToPrimitiveNumber(doorHash)
     if doorHashNum == 0 then return 0 end
 
     local state = nil
     if DoorSystemGetDoorState then
         state = DoorSystemGetDoorState(doorHashNum)
     else
-        state = Citizen.InvokeNative(0xA39FB38E36C61A28, doorHashNum, Citizen.ResultAsInt())
+        state = Citizen.InvokeNative(0xA39FB38E36C61A28, doorHashNum)
     end
 
-    if type(state) == "number" then return math.floor(state) end
-    if type(state) == "boolean" then return state and 1 or 0 end
-    return 0
+    return ToPrimitiveNumber(state)
 end
 
 local function ResolveModelName(doorHash, modelHash)
@@ -71,7 +94,7 @@ RegisterNUICallback("scanDoors", function(data, cb)
     local db = RB_DoorHashes or doorhashes
     if db then
         for hashKey, info in pairs(db) do
-            local doorHash = math.floor(tonumber(info[1] or hashKey) or 0)
+            local doorHash = ToPrimitiveNumber(info[1] or hashKey)
             local dx = coords.x - (tonumber(info[4]) or 0.0)
             local dy = coords.y - (tonumber(info[5]) or 0.0)
             local dz = coords.z - (tonumber(info[6]) or 0.0)
@@ -79,20 +102,20 @@ RegisterNUICallback("scanDoors", function(data, cb)
 
             if d <= radius and doorHash ~= 0 and not seen[doorHash] then
                 seen[doorHash] = true
-                local modelHash = math.floor(tonumber(info[2]) or 0)
+                local modelHash = ToPrimitiveNumber(info[2])
                 local modelName = info[3] or ResolveModelName(doorHash, modelHash)
                 local doorState = SafeGetDoorState(doorHash)
 
                 table.insert(doors, {
                     doorHash = doorHash,
                     model = modelHash,
-                    modelName = tostring(modelName or ("0x" .. string.format("%X", modelHash))),
-                    distance = tostring(string.format("%.2f", d)),
+                    modelName = ToPrimitiveString(modelName or ("0x" .. string.format("%X", modelHash))),
+                    distance = ToPrimitiveString(string.format("%.2f", d)),
                     distNum = tonumber(d) or 0.0,
                     state = doorState,
-                    x = tostring(string.format("%.3f", tonumber(info[4]) or 0.0)),
-                    y = tostring(string.format("%.3f", tonumber(info[5]) or 0.0)),
-                    z = tostring(string.format("%.3f", tonumber(info[6]) or 0.0))
+                    x = ToPrimitiveString(string.format("%.3f", tonumber(info[4]) or 0.0)),
+                    y = ToPrimitiveString(string.format("%.3f", tonumber(info[5]) or 0.0)),
+                    z = ToPrimitiveString(string.format("%.3f", tonumber(info[6]) or 0.0))
                 })
             end
         end
@@ -106,20 +129,19 @@ RegisterNUICallback("scanDoors", function(data, cb)
             local d = #(coords - objCoords)
 
             if d <= radius then
-                local modelHash = math.floor(tonumber(GetEntityModel(obj)) or 0)
+                local modelHash = ToPrimitiveNumber(GetEntityModel(obj))
                 local doorHashPtr = Citizen.PointerValueIntInitialized(0)
 
                 local found = Citizen.InvokeNative(
                     0x589F80B325CC82C5, -- DOOR_SYSTEM_FIND_EXISTING_DOOR
                     objCoords.x, objCoords.y, objCoords.z,
                     modelHash,
-                    doorHashPtr,
-                    Citizen.ResultAsBool()
+                    doorHashPtr
                 )
 
                 if found then
                     local doorHashRaw = Citizen.PointerValueInt(doorHashPtr)
-                    local doorHash = math.floor(tonumber(doorHashRaw) or 0)
+                    local doorHash = ToPrimitiveNumber(doorHashRaw)
 
                     if doorHash ~= 0 and not seen[doorHash] then
                         seen[doorHash] = true
@@ -129,13 +151,13 @@ RegisterNUICallback("scanDoors", function(data, cb)
                         table.insert(doors, {
                             doorHash = doorHash,
                             model = modelHash,
-                            modelName = tostring(modelName or ("0x" .. string.format("%X", modelHash))),
-                            distance = tostring(string.format("%.2f", d)),
+                            modelName = ToPrimitiveString(modelName or ("0x" .. string.format("%X", modelHash))),
+                            distance = ToPrimitiveString(string.format("%.2f", d)),
                             distNum = tonumber(d) or 0.0,
                             state = doorState,
-                            x = tostring(string.format("%.3f", objCoords.x)),
-                            y = tostring(string.format("%.3f", objCoords.y)),
-                            z = tostring(string.format("%.3f", objCoords.z))
+                            x = ToPrimitiveString(string.format("%.3f", objCoords.x)),
+                            y = ToPrimitiveString(string.format("%.3f", objCoords.y)),
+                            z = ToPrimitiveString(string.format("%.3f", objCoords.z))
                         })
                     end
                 end
