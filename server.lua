@@ -117,8 +117,9 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local name = (data.name and data.name ~= "") and data.name or ("House #" .. tostring(data.doorHash))
     local location = (data.location and data.location ~= "") and data.location or "Valentine"
     local price = tonumber(data.price) or 500
-    local owner = (data.owner and data.owner ~= "") and data.owner or creatorOwner
-    local status = "owned"
+    local isForSale = (data.owner == "For Sale" or data.status == "available")
+    local owner = isForSale and "For Sale" or ((data.owner and data.owner ~= "") and data.owner or creatorOwner)
+    local status = isForSale and "available" or "owned"
     local locked = (data.locked ~= nil) and (data.locked and 1 or 0) or 1 -- default locked = true (1)
     local doorHash = tostring(data.doorHash)
     local modelHash = tostring(data.modelHash or data.model or "")
@@ -128,7 +129,8 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local z = tonumber(data.z) or 0.0
     local heading = tonumber(data.heading) or 0.0
     local blipSprite = tonumber(data.blipSprite) or 1586273744
-    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or (owner .. "'s House")
+    local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or (owner .. "'s House")
+    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
 
     MySQL.insert([[
         INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel)
@@ -137,10 +139,10 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
         name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel
     }, function(insertId)
         if insertId then
-            print(("^2[coi_hm]^7 Created new house #%s owned by '%s' (Locked: %s, Blip: %s)."):format(insertId, owner, tostring(locked == 1), blipLabel))
+            print(("^2[coi_hm]^7 Created new house #%s (Owner: '%s', Status: '%s', Price: $%s)."):format(insertId, owner, status, price))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("House saved! Owner: %s (Blip: %s)"):format(owner, blipLabel),
+                description = ("House saved! Owner: %s (Status: %s)"):format(owner, status),
                 type = "success"
             })
             FetchAndSendHouses(-1)
@@ -173,11 +175,14 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     local name = (data.name and data.name ~= "") and data.name or ("House #" .. houseId)
     local location = (data.location and data.location ~= "") and data.location or "Valentine"
     local price = tonumber(data.price) or 500
-    local owner = (data.owner and data.owner ~= "") and data.owner or "Unowned"
+    local ownerInput = (data.owner and data.owner ~= "") and data.owner or "Unowned"
+    local isForSale = (ownerInput == "For Sale" or data.status == "available")
+    local owner = isForSale and "For Sale" or ownerInput
+    local status = isForSale and "available" or ((owner ~= "Unowned" and owner ~= "") and "owned" or "available")
     local locked = (data.locked == 1 or data.locked == true or data.locked == "1") and 1 or 0
-    local status = (owner ~= "Unowned" and owner ~= "") and "owned" or "available"
     local blipSprite = tonumber(data.blipSprite) or 1586273744
-    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or ((owner ~= "Unowned" and owner ~= "") and (owner .. "'s House") or "House")
+    local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or ((owner ~= "Unowned" and owner ~= "") and (owner .. "'s House") or "House")
+    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
 
     MySQL.query([[
         UPDATE houses
@@ -186,12 +191,78 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     ]], {
         name, location, price, owner, status, locked, blipSprite, blipLabel, houseId
     }, function(result)
-        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Blip: %s)."):format(houseId, owner, blipLabel))
+        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Status: %s)."):format(houseId, owner, status))
         TriggerClientEvent("ox_lib:notify", src, {
             title = "Housing Manager",
             description = ("House #%s updated successfully!"):format(houseId),
             type = "success"
         })
         FetchAndSendHouses(-1)
+    end)
+end)
+
+-- Buy House with Inventory/Character Cash (VORP Core)
+RegisterNetEvent("coi_hm:buyHouse", function(houseId)
+    local src = source
+    houseId = tonumber(houseId)
+    if not houseId then return end
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = result[1]
+
+        local isForSale = (house.owner == "For Sale" or house.status == "available")
+        if not isForSale then
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "This house is not for sale.",
+                type = "error"
+            })
+            return
+        end
+
+        local price = tonumber(house.price) or 500
+        local buyerName = GetPlayerOwnerId(src)
+
+        -- Check player money via VORP Core
+        local ok, core = pcall(function() return exports.vorp_core:GetCore() end)
+        if ok and core and core.getUser then
+            local user = core.getUser(src)
+            if user then
+                local character = user.getUsedCharacter
+                if character then
+                    local currentMoney = tonumber(character.money) or 0
+                    if currentMoney < price then
+                        TriggerClientEvent("ox_lib:notify", src, {
+                            title = "Housing Manager",
+                            description = ("Insufficient cash! Required: $%s (You have: $%s)"):format(price, currentMoney),
+                            type = "error"
+                        })
+                        return
+                    end
+
+                    -- Deduct cash from player inventory (0 = cash currency)
+                    character.removeCurrency(0, price)
+                end
+            end
+        end
+
+        -- Update DB: Transfer ownership to buyer
+        local newBlipLabel = buyerName .. "'s House"
+        MySQL.query([[
+            UPDATE houses
+            SET owner = ?, status = 'owned', locked = 1, blipLabel = ?
+            WHERE id = ?
+        ]], {
+            buyerName, newBlipLabel, houseId
+        }, function()
+            print(("^2[coi_hm]^7 Player '%s' bought house #%s ('%s') for $%s."):format(buyerName, houseId, house.name, price))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Congratulations! You purchased '%s' for $%s!"):format(house.name, price),
+                type = "success"
+            })
+            FetchAndSendHouses(-1)
+        end)
     end)
 end)

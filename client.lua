@@ -380,11 +380,28 @@ CreateThread(function()
                             SetDoorLockState(doorHash, isLocked)
                         end
 
-                        -- Show 3D text prompt when near door (within 5.0m)
-                        if dist <= 5.0 and isLocked then
-                            local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
-                            local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
-                            DrawText3D(hx, hy, hz + 0.15, text)
+                        -- Check if house is For Sale vs Owned & Locked
+                        local isForSale = (house.owner == "For Sale" or house.status == "available")
+                        local price = tonumber(house.price) or 500
+
+                        if isForSale then
+                            -- Show 3D For Sale Prompt when near door (within 5.0m)
+                            if dist <= 5.0 then
+                                local text = "~g~HOUSE FOR SALE~s~\nPrice: ~g~$" .. tostring(price) .. "~s~\nPress ~e~[E]~s~ to Purchase"
+                                DrawText3D(hx, hy, hz + 0.15, text)
+
+                                if dist <= 2.5 and IsControlJustPressed(0, 0xCEFD9220) then
+                                    TriggerServerEvent("coi_hm:buyHouse", house.id)
+                                    Wait(1000)
+                                end
+                            end
+                        else
+                            -- Show 3D text prompt when near locked owned house (within 5.0m)
+                            if dist <= 5.0 and isLocked then
+                                local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
+                                local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
+                                DrawText3D(hx, hy, hz + 0.15, text)
+                            end
                         end
                     end
                 end

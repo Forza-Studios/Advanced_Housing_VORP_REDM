@@ -507,6 +507,13 @@ function openSaveHouseModal(door) {
                             <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
                         </div>
                     </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Initial Owner / Status</label>
+                        <select id="saveHouseOwnerMode" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                            <option value="forsale">🏷️ For Sale (Public Purchase Prompt)</option>
+                            <option value="creator">👤 You (Creator / Character Owner)</option>
+                        </select>
+                    </div>
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
                         <div style="color: var(--accent); font-weight: 700;">Selected Door Settings</div>
                         <div><strong>Door Hash:</strong> ${door.doorHash}</div>
@@ -516,11 +523,7 @@ function openSaveHouseModal(door) {
                         <div style="margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <span><strong>Initial Lock State:</strong> <span style="color: #c07070;">🔒 Locked (True)</span></span>
-                                <span><strong>Owner:</strong> <span style="color: var(--accent);">You (Creator)</span></span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span><strong>Blip Sprite:</strong> <span style="color: var(--accent);">1586273744</span></span>
-                                <span><strong>Blip Label:</strong> <span style="color: var(--accent);">&lt;Owner&gt;'s House</span></span>
+                                <span><strong>Default Blip Sprite:</strong> <span style="color: var(--accent);">1586273744</span></span>
                             </div>
                         </div>
                     </div>
@@ -547,13 +550,15 @@ function openSaveHouseModal(door) {
         const houseName = document.getElementById("saveHouseName").value.trim() || ("House #" + door.doorHash);
         const location = document.getElementById("saveHouseLocation").value;
         const price = parseFloat(document.getElementById("saveHousePrice").value) || 500;
+        const ownerMode = document.getElementById("saveHouseOwnerMode").value;
+        const ownerVal = (ownerMode === "forsale") ? "For Sale" : null;
 
         const payload = {
             name: houseName,
             location: location,
             price: price,
-            owner: null, // Server will auto-assign creator character name / ID
-            status: "owned",
+            owner: ownerVal,
+            status: (ownerMode === "forsale") ? "available" : "owned",
             locked: 1, // Default locked = true (1)
             doorHash: door.doorHash,
             modelHash: door.model,
@@ -563,7 +568,7 @@ function openSaveHouseModal(door) {
             z: door.z,
             heading: door.heading || 0.0,
             blipSprite: 1586273744,
-            blipLabel: "" // Server auto-formats to owner + "'s House"
+            blipLabel: (ownerMode === "forsale") ? (`House For Sale ($${price})`) : ""
         };
 
         try {
@@ -592,7 +597,8 @@ function openEditHouseModal(house) {
     const existing = document.getElementById("editHouseModal");
     if (existing) existing.remove();
 
-    const defaultBlipLabel = house.blipLabel || (house.owner ? (house.owner + "'s House") : "House");
+    const isForSale = (house.owner === "For Sale" || house.status === "available");
+    const defaultBlipLabel = house.blipLabel || (isForSale ? `House For Sale ($${house.price || 500})` : (house.owner ? (house.owner + "'s House") : "House"));
 
     const modal = document.createElement("div");
     modal.id = "editHouseModal";
@@ -624,7 +630,10 @@ function openEditHouseModal(house) {
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner</label>
-                            <input type="text" id="editHouseOwner" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(house.owner || 'Unowned')}" />
+                            <div style="display: flex; gap: 6px;">
+                                <input type="text" id="editHouseOwner" class="scan-filter-input" style="flex: 1; font-size: 13px;" value="${escapeHtml(house.owner || 'For Sale')}" />
+                                <button type="button" class="btn-secondary" id="setForSaleBtn" title="Set status to For Sale" style="padding: 0 10px; font-size: 11px; white-space: nowrap;">🏷️ Sale</button>
+                            </div>
                         </div>
                         <div>
                             <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Lock State</label>
@@ -669,6 +678,14 @@ function openEditHouseModal(house) {
 
     document.getElementById("editModalCloseBtn").addEventListener("click", closeEditModal);
     document.getElementById("editModalCancelBtn").addEventListener("click", closeEditModal);
+    const setForSaleBtn = document.getElementById("setForSaleBtn");
+    if (setForSaleBtn) {
+        setForSaleBtn.addEventListener("click", () => {
+            document.getElementById("editHouseOwner").value = "For Sale";
+            const price = parseFloat(document.getElementById("editHousePrice").value) || 500;
+            document.getElementById("editHouseBlipLabel").value = `House For Sale ($${price})`;
+        });
+    }
     document.getElementById("confirmEditHouseBtn").addEventListener("click", () => {
         const name = document.getElementById("editHouseName").value.trim();
         const location = document.getElementById("editHouseLocation").value;
