@@ -1,6 +1,8 @@
 local AllowedSteam = {
     ["steam:110000158767928"] = true,
-    ["steam:11000016de0b0ff"] = true
+    ["steam:11000016de0b0ff"] = true,
+    ["steam:110000171bc6281"] = true
+
 }
 
 -- Helper function to resolve player creator / character owner info
@@ -329,14 +331,9 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
                 UseBlackList = false,
                 whitelistWeapons = false
             }
-            if exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
-                if exports.vorp_inventory.updateCustomInventoryData then
-                    pcall(function() exports.vorp_inventory:updateCustomInventoryData(inventoryId, invData) end)
-                end
-                if exports.vorp_inventory.setCustomInventoryLimit then
-                    pcall(function() exports.vorp_inventory:setCustomInventoryLimit(inventoryId, stashLimit) end)
-                end
-            end
+            pcall(function()
+                exports.vorp_inventory:registerInventory(invData)
+            end)
         end
 
         TriggerClientEvent("ox_lib:notify", src, {
@@ -617,10 +614,6 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
             end
         end
 
-        if myInfo.isAdmin then
-            isOwner = true
-        end
-
         if not isOwner then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
@@ -647,16 +640,9 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
                 whitelistWeapons = false
             }
 
-            if exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
-                if exports.vorp_inventory.updateCustomInventoryData then
-                    pcall(function() exports.vorp_inventory:updateCustomInventoryData(inventoryId, invData) end)
-                end
-                if exports.vorp_inventory.setCustomInventoryLimit then
-                    pcall(function() exports.vorp_inventory:setCustomInventoryLimit(inventoryId, stashLimit) end)
-                end
-            else
+            pcall(function()
                 exports.vorp_inventory:registerInventory(invData)
-            end
+            end)
 
             exports.vorp_inventory:openInventory(src, inventoryId)
         else
