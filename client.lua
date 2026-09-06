@@ -48,19 +48,14 @@ local function RefreshHouseBlips()
     end
 end
 
-local MyOwnerInfo = { name = "", steam = "", isAdmin = false }
+local MyOwnerInfo = { charIdentifier = nil, name = "", steam = "", license = "", isAdmin = false }
 
 local function IsPlayerHouseOwner(house)
-    if not house or not house.owner or house.owner == "" or house.owner == "Unowned" or house.owner == "For Sale" then
+    if not house or not house.owner_charid or house.owner_charid == "" or house.owner_charid == "Unowned" or house.owner_charid == "For Sale" then
         return false
     end
-    local ownerLower = string.lower(tostring(house.owner))
-    if MyOwnerInfo.name and string.lower(tostring(MyOwnerInfo.name)) == ownerLower then
-        return true
-    elseif MyOwnerInfo.steam and string.lower(tostring(MyOwnerInfo.steam)) == ownerLower then
-        return true
-    elseif MyOwnerInfo.charIdentifier and string.lower(tostring(MyOwnerInfo.charIdentifier)) == ownerLower then
-        return true
+    if MyOwnerInfo.charIdentifier and MyOwnerInfo.charIdentifier ~= "" then
+        return tostring(MyOwnerInfo.charIdentifier) == tostring(house.owner_charid)
     end
     return false
 end
@@ -69,22 +64,19 @@ local function IsPlayerHousePartner(house)
     if not house or not house.partners or type(house.partners) ~= "table" then
         return false
     end
+    if not MyOwnerInfo.charIdentifier or MyOwnerInfo.charIdentifier == "" then
+        return false
+    end
+    local myCharId = tostring(MyOwnerInfo.charIdentifier)
+
     for _, p in ipairs(house.partners) do
         if type(p) == "table" then
-            if p.name and MyOwnerInfo.name and string.lower(tostring(p.name)) == string.lower(tostring(MyOwnerInfo.name)) then
-                return true
-            elseif p.steam and MyOwnerInfo.steam and string.lower(tostring(p.steam)) == string.lower(tostring(MyOwnerInfo.steam)) then
-                return true
-            elseif p.charIdentifier and MyOwnerInfo.charIdentifier and string.lower(tostring(p.charIdentifier)) == string.lower(tostring(MyOwnerInfo.charIdentifier)) then
+            local pCharId = p.charIdentifier or p.partner_charid
+            if pCharId and tostring(pCharId) == myCharId then
                 return true
             end
-        elseif type(p) == "string" then
-            local pLower = string.lower(p)
-            if MyOwnerInfo.name and string.lower(tostring(MyOwnerInfo.name)) == pLower then
-                return true
-            elseif MyOwnerInfo.steam and string.lower(tostring(MyOwnerInfo.steam)) == pLower then
-                return true
-            elseif MyOwnerInfo.charIdentifier and string.lower(tostring(MyOwnerInfo.charIdentifier)) == pLower then
+        elseif type(p) == "string" or type(p) == "number" then
+            if tostring(p) == myCharId then
                 return true
             end
         end
@@ -520,13 +512,13 @@ CreateThread(function()
                                 if dist <= 5.0 then
                                     local lockStatusStr = isDoorLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
                                     local actionStr = isDoorLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
-                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr .. "\nPress ~e~[J]~s~ to Manage Partners"
+                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr .. "\nPress ~e~[L]~s~ to Manage Partners"
                                     DrawText3D(dx, dy, dz + 0.15, text)
 
                                     if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
                                         TriggerServerEvent("coi_hm:toggleDoorLock", { houseId = house.id, doorHash = door.doorHash })
                                         Wait(1000)
-                                    elseif dist <= 2.5 and IsControlJustPressed(0, 0xF3830D8E) then -- J key
+                                    elseif dist <= 2.5 and (IsControlJustPressed(0, 0x80F28E95) or IsControlJustPressed(0, 0xB238FE0B) or IsControlJustPressed(0, 0x26E9DA40)) then -- L key
                                         TriggerServerEvent("coi_hm:requestManagePartners", { houseId = house.id })
                                         Wait(1000)
                                     end

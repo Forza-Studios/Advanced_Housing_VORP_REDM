@@ -2,15 +2,16 @@ local AllowedSteam = {
     ["steam:110000158767928"] = true,
     ["steam:11000016de0b0ff"] = true,
     ["steam:110000171bc6281"] = true
-
 }
 
--- Helper function to resolve player creator / character owner info
+-- Helper function to resolve player creator / character owner info from VORP Core
 local function GetPlayerOwnerInfo(src)
     local name = nil
     local steam = nil
+    local license = nil
     local charIdentifier = nil
     local isAdmin = false
+    local playerName = GetPlayerName(src)
 
     for _, id in ipairs(GetPlayerIdentifiers(src)) do
         if string.sub(id, 1, 6) == "steam:" then
@@ -18,6 +19,8 @@ local function GetPlayerOwnerInfo(src)
             if AllowedSteam[id] then
                 isAdmin = true
             end
+        elseif string.sub(id, 1, 8) == "license:" then
+            license = id
         end
     end
 
@@ -28,7 +31,7 @@ local function GetPlayerOwnerInfo(src)
             if user then
                 local character = user.getUsedCharacter
                 if character then
-                    charIdentifier = character.charIdentifier or character.identifier
+                    charIdentifier = tostring(character.charIdentifier or character.identifier or "")
                     local firstname = character.firstname or ""
                     local lastname = character.lastname or ""
                     local fullName = (firstname .. " " .. lastname):gsub("^%s*(.-)%s*$", "%1")
@@ -40,14 +43,17 @@ local function GetPlayerOwnerInfo(src)
         end
     end
 
-    if not name then
-        name = steam or GetPlayerName(src) or "Unknown Creator"
+    if not name or name == "" then
+        name = playerName or steam or "Unknown Player"
     end
 
     return {
+        source = src,
         name = name,
+        playerName = playerName,
         steam = steam,
-        charIdentifier = charIdentifier,
+        license = license,
+        charIdentifier = (charIdentifier and charIdentifier ~= "") and tostring(charIdentifier) or nil,
         isAdmin = isAdmin
     }
 end
@@ -57,20 +63,21 @@ local function GetPlayerOwnerId(src)
     return info.name
 end
 
--- ===== SQL Auto-Executor & Schema Migration =====
+-- ===== SQL Auto-Executor & Schema Migration (Normalized Architecture) =====
 CreateThread(function()
     while GetResourceState("oxmysql") ~= "started" do
         Wait(100)
     end
     Wait(500)
 
+    -- 1. Create normalized houses table with owner_charid & index
     MySQL.query([[
         CREATE TABLE IF NOT EXISTS `houses` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(128) NOT NULL,
             `location` VARCHAR(128) DEFAULT 'Valentine',
             `price` INT DEFAULT 500,
-            `owner` VARCHAR(128) DEFAULT NULL,
+            `owner_charid` VARCHAR(64) DEFAULT NULL,
             `status` VARCHAR(32) DEFAULT 'owned',
             `locked` TINYINT(1) DEFAULT 1,
             `doorHash` VARCHAR(64) NOT NULL,
@@ -88,39 +95,56 @@ CreateThread(function()
             `stashZ` FLOAT DEFAULT NULL,
             `stashLimit` INT DEFAULT 100,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_owner_charid` (`owner_charid`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ]], {}, function(result)
-        print("^2[coi_hm]^7 SQL table `houses` initialized successfully.")
-        -- Migration check for existing table without locked, blipSprite, blipLabel, doors, stash columns
+    ]], {}, function()
+        print("^2[coi_hm]^7 SQL table `houses` normalized schema verified.")
+
+        -- 2. Create relational house_partners table with FK, unique key, and indexes
         MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `locked` TINYINT(1) DEFAULT 1;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `blipSprite` BIGINT DEFAULT 1586273744;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `blipLabel` VARCHAR(128) DEFAULT NULL;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `doors` LONGTEXT DEFAULT NULL;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashX` FLOAT DEFAULT NULL;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashY` FLOAT DEFAULT NULL;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashZ` FLOAT DEFAULT NULL;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashLimit` INT DEFAULT 100;
-        ]], {}, function() end)
-        MySQL.query([[
-            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `partners` LONGTEXT DEFAULT NULL;
+            CREATE TABLE IF NOT EXISTS `house_partners` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `house_id` INT NOT NULL,
+                `partner_charid` VARCHAR(64) NOT NULL,
+                `added_by_charid` VARCHAR(64) DEFAULT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `uk_house_partner` (`house_id`, `partner_charid`),
+                KEY `idx_partner_charid` (`partner_charid`),
+                KEY `idx_house_id` (`house_id`),
+                CONSTRAINT `fk_house_partners_house` FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ]], {}, function()
-            -- Auto-migrate existing single-door records to doors JSON array
+            print("^2[coi_hm]^7 Relational table `house_partners` verified with FK & Unique constraints.")
+
+            -- Migration 1: Add owner_charid column if missing on legacy installations
+            MySQL.query("SHOW COLUMNS FROM `houses` LIKE 'owner_charid'", {}, function(cols)
+                if not cols or #cols == 0 then
+                    MySQL.query("ALTER TABLE `houses` ADD COLUMN `owner_charid` VARCHAR(64) DEFAULT NULL", {}, function()
+                        MySQL.query("ALTER TABLE `houses` ADD INDEX `idx_owner_charid` (`owner_charid`)", {}, function() end)
+                    end)
+                end
+            end)
+
+            -- Migration 2: Drop legacy partners JSON column if present
+            MySQL.query("SHOW COLUMNS FROM `houses` LIKE 'partners'", {}, function(cols)
+                if cols and #cols > 0 then
+                    MySQL.query("ALTER TABLE `houses` DROP COLUMN `partners`", {}, function()
+                        print("^2[coi_hm]^7 Migrated and removed legacy `partners` JSON column from `houses`.")
+                    end)
+                end
+            end)
+
+            -- Migration 3: Drop legacy owner name column if present
+            MySQL.query("SHOW COLUMNS FROM `houses` LIKE 'owner'", {}, function(cols)
+                if cols and #cols > 0 then
+                    MySQL.query("ALTER TABLE `houses` DROP COLUMN `owner`", {}, function()
+                        print("^2[coi_hm]^7 Removed legacy name-based `owner` column from `houses`.")
+                    end)
+                end
+            end)
+
+            -- Migration 4: Ensure single-door records have valid doors JSON array
             MySQL.query("SELECT id, doorHash, modelHash, modelName, x, y, z, heading, doors FROM houses", {}, function(rows)
                 if rows then
                     for _, row in ipairs(rows) do
@@ -162,7 +186,7 @@ RegisterNetEvent("coi_hm:requestOpen", function()
     })
 end)
 
--- Helper to format house doors array for client sync
+-- Helper to format house object for client payload
 local function FormatHouseForClient(h)
     local doors = {}
     local houseLocked = (h.locked == 1 or h.locked == true or h.locked == "1") and 1 or 0
@@ -197,84 +221,107 @@ local function FormatHouseForClient(h)
     end
     h.doors = doors
 
-    local partners = {}
-    if h.partners and h.partners ~= "" then
-        if type(h.partners) == "string" then
-            local ok, parsed = pcall(json.decode, h.partners)
-            if ok and type(parsed) == "table" then partners = parsed end
-        elseif type(h.partners) == "table" then
-            partners = h.partners
-        end
+    -- Format owner display name dynamically resolved from VORP characters table join
+    local ownerName = h.owner_name and h.owner_name:gsub("^%s*(.-)%s*$", "%1") or ""
+    if h.status == "available" or not h.owner_charid or h.owner_charid == "" or h.owner_charid == "For Sale" then
+        h.owner = "For Sale"
+        h.owner_charid = nil
+    else
+        h.owner = (ownerName ~= "") and ownerName or ("Char #" .. tostring(h.owner_charid))
+        h.owner_charid = tostring(h.owner_charid)
     end
-    h.partners = partners
 
     return h
 end
 
--- Helper to check if player is house owner or partner
-local function IsPlayerOwnerOrPartner(house, myInfo)
-    if not house then return false end
-
-    -- Owner check
-    if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-        local ownerLower = string.lower(tostring(house.owner))
-        if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-            return true
-        elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-            return true
-        elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-            return true
-        end
-    end
-
-    -- Partner check
-    if house.partners and type(house.partners) == "table" then
-        for _, p in ipairs(house.partners) do
-            if type(p) == "table" then
-                if p.name and myInfo.name and string.lower(tostring(p.name)) == string.lower(tostring(myInfo.name)) then
-                    return true
-                elseif p.steam and myInfo.steam and string.lower(tostring(p.steam)) == string.lower(tostring(myInfo.steam)) then
-                    return true
-                elseif p.charIdentifier and myInfo.charIdentifier and string.lower(tostring(p.charIdentifier)) == string.lower(tostring(myInfo.charIdentifier)) then
-                    return true
-                end
-            elseif type(p) == "string" then
-                local pLower = string.lower(p)
-                if myInfo.name and string.lower(tostring(myInfo.name)) == pLower then
-                    return true
-                elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == pLower then
-                    return true
-                elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == pLower then
-                    return true
-                end
-            end
-        end
-    end
-
-    return false
+-- Helper: Check if player character is house owner
+local function IsPlayerHouseOwner(house, charId)
+    if not house or not house.owner_charid or not charId then return false end
+    return tostring(house.owner_charid) == tostring(charId)
 end
 
--- Fetch houses from DB and sync to client with player owner identity
-local function FetchAndSendHouses(target)
-    MySQL.query("SELECT * FROM houses ORDER BY id DESC", {}, function(result)
-        local rawHouses = result or {}
-        local houses = {}
-        for _, h in ipairs(rawHouses) do
-            table.insert(houses, FormatHouseForClient(h))
-        end
+-- Helper: Query house_partners relational table to check if player character is a partner
+local function IsPlayerHousePartner(houseId, charId, callback)
+    if not houseId or not charId then callback(false) return end
+    MySQL.query("SELECT 1 FROM house_partners WHERE house_id = ? AND partner_charid = ? LIMIT 1", {
+        houseId, tostring(charId)
+    }, function(res)
+        callback(res and #res > 0)
+    end)
+end
 
-        if target == -1 or not target then
-            for _, srcStr in ipairs(GetPlayers()) do
-                local pSrc = tonumber(srcStr)
-                if pSrc then
-                    local myInfo = GetPlayerOwnerInfo(pSrc)
-                    TriggerClientEvent("coi_hm:setHouses", pSrc, houses, myInfo)
+-- Helper: Check if player character is owner or partner
+local function IsPlayerOwnerOrPartner(house, charId, callback)
+    if not house or not charId then callback(false) return end
+    if IsPlayerHouseOwner(house, charId) then
+        callback(true)
+        return
+    end
+    IsPlayerHousePartner(house.id, charId, callback)
+end
+
+-- Fetch houses from DB joining VORP characters table dynamically, and sync to client
+local function FetchAndSendHouses(target)
+    -- Join VORP's characters table on charidentifier to dynamically resolve owner name at query time
+    local houseQuery = [[
+        SELECT 
+            h.*,
+            CONCAT(COALESCE(c.firstname, ''), ' ', COALESCE(c.lastname, '')) AS owner_name
+        FROM houses h
+        LEFT JOIN characters c ON CAST(c.charidentifier AS CHAR) = CAST(h.owner_charid AS CHAR)
+        ORDER BY h.id DESC
+    ]]
+
+    MySQL.query(houseQuery, {}, function(result)
+        local rawHouses = result or {}
+
+        -- Query relational house_partners table joining VORP's characters table to dynamically resolve partner names
+        local partnerQuery = [[
+            SELECT 
+                hp.house_id,
+                hp.partner_charid,
+                CONCAT(COALESCE(c.firstname, ''), ' ', COALESCE(c.lastname, '')) AS partner_name
+            FROM house_partners hp
+            LEFT JOIN characters c ON CAST(c.charidentifier AS CHAR) = CAST(hp.partner_charid AS CHAR)
+        ]]
+
+        MySQL.query(partnerQuery, {}, function(partnerRows)
+            local partnersByHouse = {}
+            if partnerRows then
+                for _, p in ipairs(partnerRows) do
+                    local hId = tonumber(p.house_id)
+                    if hId then
+                        partnersByHouse[hId] = partnersByHouse[hId] or {}
+                        local pName = p.partner_name and p.partner_name:gsub("^%s*(.-)%s*$", "%1") or ""
+                        if pName == "" then pName = "Char #" .. tostring(p.partner_charid) end
+                        table.insert(partnersByHouse[hId], {
+                            charIdentifier = tostring(p.partner_charid),
+                            name = pName
+                        })
+                    end
                 end
             end
-        else
-            local myInfo = GetPlayerOwnerInfo(target)
-            TriggerClientEvent("coi_hm:setHouses", target, houses, myInfo)
-        end
+
+            local houses = {}
+            for _, h in ipairs(rawHouses) do
+                local formatted = FormatHouseForClient(h)
+                formatted.partners = partnersByHouse[h.id] or {}
+                table.insert(houses, formatted)
+            end
+
+            if target == -1 or not target then
+                for _, srcStr in ipairs(GetPlayers()) do
+                    local pSrc = tonumber(srcStr)
+                    if pSrc then
+                        local myInfo = GetPlayerOwnerInfo(pSrc)
+                        TriggerClientEvent("coi_hm:setHouses", pSrc, houses, myInfo)
+                    end
+                end
+            else
+                local myInfo = GetPlayerOwnerInfo(target)
+                TriggerClientEvent("coi_hm:setHouses", target, houses, myInfo)
+            end
+        end)
     end)
 end
 
@@ -283,19 +330,20 @@ RegisterNetEvent("coi_hm:requestHouses", function()
     FetchAndSendHouses(src)
 end)
 
--- Create / Save House to DB
+-- Create / Save House to DB (uses owner_charid)
 RegisterNetEvent("coi_hm:createHouse", function(data)
     local src = source
     if not data or not data.doorHash then return end
 
-    local creatorOwner = GetPlayerOwnerId(src)
+    local myInfo = GetPlayerOwnerInfo(src)
+    local creatorCharId = myInfo.charIdentifier
     local name = (data.name and data.name ~= "") and data.name or ("House #" .. tostring(data.doorHash))
     local location = (data.location and data.location ~= "") and data.location or "Valentine"
     local price = tonumber(data.price) or 500
-    local isForSale = (data.owner == "For Sale" or data.status == "available")
-    local owner = isForSale and "For Sale" or ((data.owner and data.owner ~= "") and data.owner or creatorOwner)
+    local isForSale = (data.owner == "For Sale" or data.status == "available" or data.owner_charid == "For Sale")
+    local ownerCharId = isForSale and nil or ((data.owner_charid and data.owner_charid ~= "") and data.owner_charid or creatorCharId)
     local status = isForSale and "available" or "owned"
-    local locked = (data.locked ~= nil) and (data.locked and 1 or 0) or 1 -- default locked = true (1)
+    local locked = (data.locked ~= nil) and (data.locked and 1 or 0) or 1
     local doorHash = tostring(data.doorHash)
     local modelHash = tostring(data.modelHash or data.model or "")
     local modelName = tostring(data.modelName or "")
@@ -304,8 +352,7 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local z = tonumber(data.z) or 0.0
     local heading = tonumber(data.heading) or 0.0
     local blipSprite = tonumber(data.blipSprite) or 1586273744
-    local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or (owner .. "'s House")
-    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
+    local blipLabel = data.blipLabel or nil
     local stashLimit = tonumber(data.stashLimit) or 100
 
     local initDoors = {
@@ -322,16 +369,16 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local doorsJson = json.encode(initDoors)
 
     MySQL.insert([[
-        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doors, stashLimit)
+        INSERT INTO houses (name, location, price, owner_charid, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doors, stashLimit)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doorsJson, stashLimit
+        name, location, price, ownerCharId, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doorsJson, stashLimit
     }, function(insertId)
         if insertId then
-            print(("^2[coi_hm]^7 Created new house #%s (Owner: '%s', Status: '%s', Price: $%s, Stash: %skg)."):format(insertId, owner, status, price, stashLimit))
+            print(("^2[coi_hm]^7 Created new house #%s (OwnerCharId: '%s', Status: '%s', Price: $%s, Stash: %skg)."):format(insertId, ownerCharId or "None", status, price, stashLimit))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("House saved! Owner: %s (Stash: %skg)"):format(owner, stashLimit),
+                description = ("House saved! OwnerCharId: %s (Stash: %skg)"):format(ownerCharId or "For Sale", stashLimit),
                 type = "success"
             })
             FetchAndSendHouses(-1)
@@ -339,13 +386,13 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     end)
 end)
 
--- Delete House from DB
+-- Delete House from DB (Cascades delete to house_partners via FK)
 RegisterNetEvent("coi_hm:deleteHouse", function(houseId)
     local src = source
     houseId = tonumber(houseId)
     if not houseId then return end
 
-    MySQL.query("DELETE FROM houses WHERE id = ?", { houseId }, function(result)
+    MySQL.query("DELETE FROM houses WHERE id = ?", { houseId }, function()
         TriggerClientEvent("ox_lib:notify", src, {
             title = "Housing Manager",
             description = "House #" .. houseId .. " deleted.",
@@ -355,7 +402,7 @@ RegisterNetEvent("coi_hm:deleteHouse", function(houseId)
     end)
 end)
 
--- Update House in DB
+-- Update House in DB (uses owner_charid)
 RegisterNetEvent("coi_hm:updateHouse", function(data)
     local src = source
     if not data or not data.id then return end
@@ -364,24 +411,23 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     local name = (data.name and data.name ~= "") and data.name or ("House #" .. houseId)
     local location = (data.location and data.location ~= "") and data.location or "Valentine"
     local price = tonumber(data.price) or 500
-    local ownerInput = (data.owner and data.owner ~= "") and data.owner or "Unowned"
-    local isForSale = (ownerInput == "For Sale" or data.status == "available")
-    local owner = isForSale and "For Sale" or ownerInput
-    local status = isForSale and "available" or ((owner ~= "Unowned" and owner ~= "") and "owned" or "available")
+    local ownerInput = (data.owner_charid and data.owner_charid ~= "") and data.owner_charid or data.owner
+    local isForSale = (ownerInput == "For Sale" or data.status == "available" or not ownerInput or ownerInput == "")
+    local ownerCharId = isForSale and nil or ownerInput
+    local status = isForSale and "available" or "owned"
     local locked = (data.locked == 1 or data.locked == true or data.locked == "1") and 1 or 0
     local blipSprite = tonumber(data.blipSprite) or 1586273744
-    local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or ((owner ~= "Unowned" and owner ~= "") and (owner .. "'s House") or "House")
-    local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
+    local blipLabel = data.blipLabel or nil
     local stashLimit = tonumber(data.stashLimit) or 100
 
     MySQL.query([[
         UPDATE houses
-        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?, stashLimit = ?
+        SET name = ?, location = ?, price = ?, owner_charid = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?, stashLimit = ?
         WHERE id = ?
     ]], {
-        name, location, price, owner, status, locked, blipSprite, blipLabel, stashLimit, houseId
-    }, function(result)
-        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Status: %s, StashLimit: %skg)."):format(houseId, owner, status, stashLimit))
+        name, location, price, ownerCharId, status, locked, blipSprite, blipLabel, stashLimit, houseId
+    }, function()
+        print(("^2[coi_hm]^7 Updated house #%s (OwnerCharId: %s, Status: %s, StashLimit: %skg)."):format(houseId, ownerCharId or "None", status, stashLimit))
 
         -- Live sync updated stashLimit with vorp_inventory
         local inventoryId = "house_stash_" .. tostring(houseId)
@@ -412,17 +458,29 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     end)
 end)
 
--- Buy House with Inventory/Character Cash (VORP Core)
+-- Buy House with VORP Core cash (Transfers owner_charid and clears old house_partners)
 RegisterNetEvent("coi_hm:buyHouse", function(houseId)
     local src = source
     houseId = tonumber(houseId)
     if not houseId then return end
 
+    local myInfo = GetPlayerOwnerInfo(src)
+    local buyerCharId = myInfo.charIdentifier
+
+    if not buyerCharId then
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = "You must have an active character to buy a house.",
+            type = "error"
+        })
+        return
+    end
+
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
         local house = result[1]
 
-        local isForSale = (house.owner == "For Sale" or house.status == "available")
+        local isForSale = (not house.owner_charid or house.owner_charid == "" or house.status == "available")
         if not isForSale then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
@@ -433,7 +491,6 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
         end
 
         local price = tonumber(house.price) or 500
-        local buyerName = GetPlayerOwnerId(src)
 
         -- Check player money via VORP Core
         local ok, core = pcall(function() return exports.vorp_core:GetCore() end)
@@ -458,27 +515,28 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
             end
         end
 
-        -- Update DB: Transfer ownership to buyer
-        local newBlipLabel = buyerName .. "'s House"
+        -- Update DB: Transfer ownership to buyer's charIdentifier and reset partners
         MySQL.query([[
             UPDATE houses
-            SET owner = ?, status = 'owned', locked = 1, blipLabel = ?
+            SET owner_charid = ?, status = 'owned', locked = 1
             WHERE id = ?
         ]], {
-            buyerName, newBlipLabel, houseId
+            buyerCharId, houseId
         }, function()
-            print(("^2[coi_hm]^7 Player '%s' bought house #%s ('%s') for $%s."):format(buyerName, houseId, house.name, price))
-            TriggerClientEvent("ox_lib:notify", src, {
-                title = "Housing Manager",
-                description = ("Congratulations! You purchased '%s' for $%s!"):format(house.name, price),
-                type = "success"
-            })
-            FetchAndSendHouses(-1)
+            MySQL.query("DELETE FROM house_partners WHERE house_id = ?", { houseId }, function()
+                print(("^2[coi_hm]^7 Character '%s' (Src: %s) bought house #%s ('%s') for $%s."):format(buyerCharId, src, houseId, house.name, price))
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = ("Congratulations! You purchased '%s' for $%s!"):format(house.name, price),
+                    type = "success"
+                })
+                FetchAndSendHouses(-1)
+            end)
         end)
     end)
 end)
 
--- Owner Toggle Door Lock Event (Single Door or All Doors)
+-- Owner Toggle Door Lock Event (Owner & Partner Permission via charIdentifier)
 RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
     local src = source
     local houseId = nil
@@ -492,81 +550,90 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
     end
 
     if not houseId then return end
+    local myInfo = GetPlayerOwnerInfo(src)
+    if not myInfo.charIdentifier then
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = "No active character found.",
+            type = "error"
+        })
+        return
+    end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
         local house = result[1]
-        local myInfo = GetPlayerOwnerInfo(src)
 
-        local isOwnerOrPartner = IsPlayerOwnerOrPartner(house, myInfo)
-        if not isOwnerOrPartner then
-            TriggerClientEvent("ox_lib:notify", src, {
-                title = "Housing Manager",
-                description = "You are not an owner or partner of this house.",
-                type = "error"
-            })
-            return
-        end
+        IsPlayerOwnerOrPartner(house, myInfo.charIdentifier, function(isOwnerOrPartner)
+            if not isOwnerOrPartner then
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = "You are not an owner or partner of this house.",
+                    type = "error"
+                })
+                return
+            end
 
-        local doors = {}
-        if house.doors and house.doors ~= "" then
-            local ok, parsed = pcall(json.decode, house.doors)
-            if ok and type(parsed) == "table" then doors = parsed end
-        end
+            local doors = {}
+            if house.doors and house.doors ~= "" then
+                local ok, parsed = pcall(json.decode, house.doors)
+                if ok and type(parsed) == "table" then doors = parsed end
+            end
 
-        local houseLocked = (house.locked == 1 or house.locked == true or house.locked == "1") and 1 or 0
+            local houseLocked = (house.locked == 1 or house.locked == true or house.locked == "1") and 1 or 0
 
-        if #doors == 0 then
-            table.insert(doors, {
-                doorHash = tostring(house.doorHash),
-                modelHash = tostring(house.modelHash or ""),
-                modelName = tostring(house.modelName or ""),
-                x = tonumber(house.x) or 0.0,
-                y = tonumber(house.y) or 0.0,
-                z = tonumber(house.z) or 0.0,
-                heading = tonumber(house.heading) or 0.0,
-                locked = houseLocked
-            })
-        end
+            if #doors == 0 then
+                table.insert(doors, {
+                    doorHash = tostring(house.doorHash),
+                    modelHash = tostring(house.modelHash or ""),
+                    modelName = tostring(house.modelName or ""),
+                    x = tonumber(house.x) or 0.0,
+                    y = tonumber(house.y) or 0.0,
+                    z = tonumber(house.z) or 0.0,
+                    heading = tonumber(house.heading) or 0.0,
+                    locked = houseLocked
+                })
+            end
 
-        local newDoorStatusStr = ""
+            local newDoorStatusStr = ""
 
-        if targetDoorHash then
-            local found = false
-            for _, d in ipairs(doors) do
-                if tostring(d.doorHash) == targetDoorHash then
-                    found = true
-                    local currentLock = (d.locked ~= nil) and ((d.locked == 1 or d.locked == true or d.locked == "1") and 1 or 0) or houseLocked
-                    d.locked = (currentLock == 1) and 0 or 1
-                    newDoorStatusStr = (d.locked == 1) and "Locked" or "Unlocked"
-                    break
+            if targetDoorHash then
+                local found = false
+                for _, d in ipairs(doors) do
+                    if tostring(d.doorHash) == targetDoorHash then
+                        found = true
+                        local currentLock = (d.locked ~= nil) and ((d.locked == 1 or d.locked == true or d.locked == "1") and 1 or 0) or houseLocked
+                        d.locked = (currentLock == 1) and 0 or 1
+                        newDoorStatusStr = (d.locked == 1) and "Locked" or "Unlocked"
+                        break
+                    end
                 end
+
+                if not found then
+                    doors[1].locked = (houseLocked == 1) and 0 or 1
+                    newDoorStatusStr = (doors[1].locked == 1) and "Locked" or "Unlocked"
+                end
+            else
+                local newLockState = (houseLocked == 1) and 0 or 1
+                houseLocked = newLockState
+                for _, d in ipairs(doors) do
+                    d.locked = newLockState
+                end
+                newDoorStatusStr = (newLockState == 1) and "Locked" or "Unlocked"
             end
 
-            if not found then
-                doors[1].locked = (houseLocked == 1) and 0 or 1
-                newDoorStatusStr = (doors[1].locked == 1) and "Locked" or "Unlocked"
-            end
-        else
-            local newLockState = (houseLocked == 1) and 0 or 1
-            houseLocked = newLockState
-            for _, d in ipairs(doors) do
-                d.locked = newLockState
-            end
-            newDoorStatusStr = (newLockState == 1) and "Locked" or "Unlocked"
-        end
+            local mainDoorLocked = (doors[1] and doors[1].locked ~= nil) and doors[1].locked or houseLocked
+            local doorsJson = json.encode(doors)
 
-        local mainDoorLocked = (doors[1] and doors[1].locked ~= nil) and doors[1].locked or houseLocked
-        local doorsJson = json.encode(doors)
-
-        MySQL.query("UPDATE houses SET locked = ?, doors = ? WHERE id = ?", { mainDoorLocked, doorsJson, houseId }, function()
-            print(("^2[coi_hm]^7 Owner '%s' toggled door #%s lock state on house #%s to %s."):format(myInfo.name, targetDoorHash or "all", houseId, newDoorStatusStr))
-            TriggerClientEvent("ox_lib:notify", src, {
-                title = "Housing Manager",
-                description = ("Door %s!"):format(newDoorStatusStr),
-                type = (newDoorStatusStr == "Locked") and "error" or "success"
-            })
-            FetchAndSendHouses(-1)
+            MySQL.query("UPDATE houses SET locked = ?, doors = ? WHERE id = ?", { mainDoorLocked, doorsJson, houseId }, function()
+                print(("^2[coi_hm]^7 CharId '%s' toggled door #%s lock state on house #%s to %s."):format(myInfo.charIdentifier, targetDoorHash or "all", houseId, newDoorStatusStr))
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = ("Door %s!"):format(newDoorStatusStr),
+                    type = (newDoorStatusStr == "Locked") and "error" or "success"
+                })
+                FetchAndSendHouses(-1)
+            end)
         end)
     end)
 end)
@@ -728,83 +795,83 @@ RegisterNetEvent("coi_hm:removeStashCoords", function(data)
     end)
 end)
 
--- Open House Stash Event (vorp_inventory integration - Owner & Partner Access)
+-- Open House Stash Event (vorp_inventory integration - Owner & Partner Access via charIdentifier)
 RegisterNetEvent("coi_hm:openStash", function(houseId)
     local src = source
     houseId = tonumber(houseId)
     if not houseId then return end
+    local myInfo = GetPlayerOwnerInfo(src)
+
+    if not myInfo.charIdentifier then
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = "No active character loaded.",
+            type = "error"
+        })
+        return
+    end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
-        local house = FormatHouseForClient(result[1])
-        local myInfo = GetPlayerOwnerInfo(src)
+        local house = result[1]
 
-        local isOwnerOrPartner = IsPlayerOwnerOrPartner(house, myInfo)
-        if not isOwnerOrPartner then
-            TriggerClientEvent("ox_lib:notify", src, {
-                title = "Housing Manager",
-                description = "Storage access is restricted to house owners and partners.",
-                type = "error"
-            })
-            return
-        end
+        IsPlayerOwnerOrPartner(house, myInfo.charIdentifier, function(isOwnerOrPartner)
+            if not isOwnerOrPartner then
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = "Storage access is restricted to house owners and partners.",
+                    type = "error"
+                })
+                return
+            end
 
-        local inventoryId = "house_stash_" .. tostring(houseId)
-        local stashLimit = tonumber(house.stashLimit) or 100
+            local inventoryId = "house_stash_" .. tostring(houseId)
+            local stashLimit = tonumber(house.stashLimit) or 100
 
-        if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
-            local invData = {
-                id = inventoryId,
-                name = (house.name or ("House #" .. houseId)) .. " Storage",
-                limit = stashLimit,
-                acceptWeapons = true,
-                shared = true,
-                ignoreItemStackLimit = true,
-                whitelistItems = false,
-                UsePermissions = false,
-                UseBlackList = false,
-                whitelistWeapons = false
-            }
+            if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
+                local invData = {
+                    id = inventoryId,
+                    name = (house.name or ("House #" .. houseId)) .. " Storage",
+                    limit = stashLimit,
+                    acceptWeapons = true,
+                    shared = true,
+                    ignoreItemStackLimit = true,
+                    whitelistItems = false,
+                    UsePermissions = false,
+                    UseBlackList = false,
+                    whitelistWeapons = false
+                }
 
-            pcall(function()
-                exports.vorp_inventory:registerInventory(invData)
-            end)
+                pcall(function()
+                    exports.vorp_inventory:registerInventory(invData)
+                end)
 
-            exports.vorp_inventory:openInventory(src, inventoryId)
-        else
-            TriggerClientEvent("ox_lib:notify", src, {
-                title = "Housing Manager",
-                description = "vorp_inventory is not running.",
-                type = "error"
-            })
-        end
+                exports.vorp_inventory:openInventory(src, inventoryId)
+            else
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = "vorp_inventory is not running.",
+                    type = "error"
+                })
+            end
+        end)
     end)
 end)
 
--- Request Manage Partners Event (Owner Only)
+-- Request Manage Partners Event (Owner Only - via charIdentifier)
 RegisterNetEvent("coi_hm:requestManagePartners", function(data)
     local src = source
     local houseId = (type(data) == "table") and tonumber(data.houseId) or tonumber(data)
     if not houseId then return end
 
+    local myInfo = GetPlayerOwnerInfo(src)
+    if not myInfo.charIdentifier then return end
+
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
-        local house = FormatHouseForClient(result[1])
-        local myInfo = GetPlayerOwnerInfo(src)
+        local house = result[1]
 
-        local isOwner = false
-        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-            local ownerLower = string.lower(tostring(house.owner))
-            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-                isOwner = true
-            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-                isOwner = true
-            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-                isOwner = true
-            end
-        end
-
-        if not isOwner then
+        if not IsPlayerHouseOwner(house, myInfo.charIdentifier) then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
                 description = "Only the house owner can manage house partners.",
@@ -825,143 +892,125 @@ RegisterNetEvent("coi_hm:requestManagePartners", function(data)
                     local targetCoords = GetEntityCoords(targetPed)
                     if #(coords - targetCoords) <= 15.0 then
                         local targetInfo = GetPlayerOwnerInfo(targetSrc)
-                        table.insert(nearbyPlayers, {
-                            source = targetSrc,
-                            name = targetInfo.name,
-                            steam = targetInfo.steam,
-                            charIdentifier = targetInfo.charIdentifier
-                        })
+                        if targetInfo.charIdentifier then
+                            table.insert(nearbyPlayers, {
+                                source = targetSrc,
+                                charIdentifier = targetInfo.charIdentifier,
+                                name = targetInfo.name
+                            })
+                        end
                     end
                 end
             end
         end
 
-        TriggerClientEvent("coi_hm:openPartnerMenu", src, {
-            houseId = house.id,
-            houseName = house.name,
-            partners = house.partners or {},
-            nearbyPlayers = nearbyPlayers
-        })
+        -- Query house_partners joining VORP characters for current partner names
+        local q = [[
+            SELECT 
+                hp.partner_charid,
+                CONCAT(COALESCE(c.firstname, ''), ' ', COALESCE(c.lastname, '')) AS partner_name
+            FROM house_partners hp
+            LEFT JOIN characters c ON CAST(c.charidentifier AS CHAR) = CAST(hp.partner_charid AS CHAR)
+            WHERE hp.house_id = ?
+        ]]
+        MySQL.query(q, { houseId }, function(partnerRows)
+            local partners = {}
+            if partnerRows then
+                for _, p in ipairs(partnerRows) do
+                    local pName = p.partner_name and p.partner_name:gsub("^%s*(.-)%s*$", "%1") or ""
+                    if pName == "" then pName = "Char #" .. tostring(p.partner_charid) end
+                    table.insert(partners, {
+                        charIdentifier = tostring(p.partner_charid),
+                        name = pName
+                    })
+                end
+            end
+
+            TriggerClientEvent("coi_hm:openPartnerMenu", src, {
+                houseId = house.id,
+                houseName = house.name,
+                partners = partners,
+                nearbyPlayers = nearbyPlayers
+            })
+        end)
     end)
 end)
 
--- Add Partner Event
+-- Add Partner Event (Stores in house_partners relational table)
 RegisterNetEvent("coi_hm:addPartner", function(data)
     local src = source
     if not data or not data.houseId or not data.partner then return end
     local houseId = tonumber(data.houseId)
-    local partner = data.partner
+    local partnerData = data.partner
+    local myInfo = GetPlayerOwnerInfo(src)
+    if not myInfo.charIdentifier then return end
+
+    local targetCharId = partnerData.charIdentifier
+    if partnerData.source then
+        local tInfo = GetPlayerOwnerInfo(tonumber(partnerData.source))
+        if tInfo and tInfo.charIdentifier then
+            targetCharId = tInfo.charIdentifier
+        end
+    end
+
+    if not targetCharId or targetCharId == "" then
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = "Could not resolve partner character ID.",
+            type = "error"
+        })
+        return
+    end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
-        local house = FormatHouseForClient(result[1])
-        local myInfo = GetPlayerOwnerInfo(src)
+        local house = result[1]
 
-        local isOwner = false
-        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-            local ownerLower = string.lower(tostring(house.owner))
-            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-                isOwner = true
-            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-                isOwner = true
-            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-                isOwner = true
-            end
-        end
+        if not IsPlayerHouseOwner(house, myInfo.charIdentifier) then return end
 
-        if not isOwner then return end
-
-        local partners = house.partners or {}
-        local pName = partner.name
-        local pSteam = partner.steam
-        local pCharId = partner.charIdentifier
-
-        for _, p in ipairs(partners) do
-            if (pName and p.name == pName) or (pSteam and p.steam == pSteam) then
-                TriggerClientEvent("ox_lib:notify", src, {
-                    title = "Housing Manager",
-                    description = (pName or "Player") .. " is already a partner of this house.",
-                    type = "error"
-                })
-                return
-            end
-        end
-
-        table.insert(partners, {
-            name = pName,
-            steam = pSteam,
-            charIdentifier = pCharId
-        })
-
-        local partnersJson = json.encode(partners)
-        MySQL.query("UPDATE houses SET partners = ? WHERE id = ?", { partnersJson, houseId }, function()
-            print(("^2[coi_hm]^7 Added partner '%s' to House #%s."):format(pName or "Unknown", houseId))
+        MySQL.query([[
+            INSERT INTO house_partners (house_id, partner_charid, added_by_charid)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE id=id
+        ]], {
+            houseId, tostring(targetCharId), tostring(myInfo.charIdentifier)
+        }, function()
+            print(("^2[coi_hm]^7 Added partner charId '%s' to House #%s."):format(targetCharId, houseId))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("Added %s as a house partner!"):format(pName or "Player"),
+                description = "Added player as a house partner!",
                 type = "success"
             })
-            if partner.source then
-                TriggerClientEvent("ox_lib:notify", partner.source, {
-                    title = "Housing Manager",
-                    description = ("You have been added as a partner to %s!"):format(house.name),
-                    type = "info"
-                })
-            end
             FetchAndSendHouses(-1)
         end)
     end)
 end)
 
--- Remove Partner Event
+-- Remove Partner Event (Deletes from house_partners relational table)
 RegisterNetEvent("coi_hm:removePartner", function(data)
     local src = source
     if not data or not data.houseId or not data.partner then return end
     local houseId = tonumber(data.houseId)
-    local partnerToRemove = data.partner
+    local partnerData = data.partner
+    local myInfo = GetPlayerOwnerInfo(src)
+    if not myInfo.charIdentifier then return end
+
+    local removeCharId = partnerData.charIdentifier or partnerData.partner_charid
+    if not removeCharId or removeCharId == "" then return end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
-        local house = FormatHouseForClient(result[1])
-        local myInfo = GetPlayerOwnerInfo(src)
+        local house = result[1]
 
-        local isOwner = false
-        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-            local ownerLower = string.lower(tostring(house.owner))
-            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-                isOwner = true
-            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-                isOwner = true
-            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-                isOwner = true
-            end
-        end
+        if not IsPlayerHouseOwner(house, myInfo.charIdentifier) then return end
 
-        if not isOwner then return end
-
-        local partners = house.partners or {}
-        local updatedPartners = {}
-        local remName = partnerToRemove.name
-        local remSteam = partnerToRemove.steam
-
-        for _, p in ipairs(partners) do
-            local match = false
-            if remName and p.name and string.lower(tostring(p.name)) == string.lower(tostring(remName)) then
-                match = true
-            elseif remSteam and p.steam and string.lower(tostring(p.steam)) == string.lower(tostring(remSteam)) then
-                match = true
-            end
-            if not match then
-                table.insert(updatedPartners, p)
-            end
-        end
-
-        local partnersJson = json.encode(updatedPartners)
-        MySQL.query("UPDATE houses SET partners = ? WHERE id = ?", { partnersJson, houseId }, function()
-            print(("^2[coi_hm]^7 Removed partner '%s' from House #%s."):format(remName or "Unknown", houseId))
+        MySQL.query("DELETE FROM house_partners WHERE house_id = ? AND partner_charid = ?", {
+            houseId, tostring(removeCharId)
+        }, function()
+            print(("^2[coi_hm]^7 Removed partner charId '%s' from House #%s."):format(removeCharId, houseId))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("Removed %s from house partners."):format(remName or "Partner"),
+                description = "Removed player from house partners.",
                 type = "info"
             })
             FetchAndSendHouses(-1)

@@ -756,9 +756,9 @@ function openEditHouseModal(house) {
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner</label>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner CharID</label>
                             <div style="display: flex; gap: 6px;">
-                                <input type="text" id="editHouseOwner" class="scan-filter-input" style="flex: 1; font-size: 13px;" value="${escapeHtml(house.owner || 'For Sale')}" />
+                                <input type="text" id="editHouseOwner" class="scan-filter-input" style="flex: 1; font-size: 13px;" value="${escapeHtml(house.owner_charid || house.owner || 'For Sale')}" placeholder="CharID or 'For Sale'" />
                                 <button type="button" class="btn-secondary" id="setForSaleBtn" title="Set status to For Sale" style="padding: 0 10px; font-size: 11px; white-space: nowrap;">🏷️ Sale</button>
                             </div>
                         </div>
@@ -867,6 +867,7 @@ function openEditHouseModal(house) {
             name: name,
             location: location,
             price: price,
+            owner_charid: owner,
             owner: owner,
             locked: locked,
             blipSprite: blipSprite,
