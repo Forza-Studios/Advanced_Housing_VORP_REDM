@@ -48,8 +48,29 @@ local function RefreshHouseBlips()
     end
 end
 
-RegisterNetEvent("coi_hm:setHouses", function(houses)
+local MyOwnerInfo = { name = "", steam = "", isAdmin = false }
+
+local function IsPlayerHouseOwner(house)
+    if not house or not house.owner or house.owner == "" or house.owner == "Unowned" or house.owner == "For Sale" then
+        return false
+    end
+    if MyOwnerInfo.isAdmin then
+        return true
+    end
+    if MyOwnerInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.name)) then
+        return true
+    end
+    if MyOwnerInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.steam)) then
+        return true
+    end
+    return false
+end
+
+RegisterNetEvent("coi_hm:setHouses", function(houses, myInfo)
     LoadedHouses = houses or {}
+    if myInfo then
+        MyOwnerInfo = myInfo
+    end
     SendNUIMessage({
         action = "setHouses",
         houses = LoadedHouses
@@ -380,8 +401,9 @@ CreateThread(function()
                             SetDoorLockState(doorHash, isLocked)
                         end
 
-                        -- Check if house is For Sale vs Owned & Locked
+                        -- Check house ownership & state
                         local isForSale = (house.owner == "For Sale" or house.status == "available")
+                        local isOwner = IsPlayerHouseOwner(house)
                         local price = tonumber(house.price) or 500
 
                         if isForSale then
@@ -395,8 +417,21 @@ CreateThread(function()
                                     Wait(1000)
                                 end
                             end
+                        elseif isOwner then
+                            -- House Owner / Admin: Show 3D Lock/Unlock Toggle Prompt (within 5.0m)
+                            if dist <= 5.0 then
+                                local lockStatusStr = isLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
+                                local actionStr = isLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
+                                local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
+                                DrawText3D(hx, hy, hz + 0.15, text)
+
+                                if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
+                                    TriggerServerEvent("coi_hm:toggleDoorLock", house.id)
+                                    Wait(1000)
+                                end
+                            end
                         else
-                            -- Show 3D text prompt when near locked owned house (within 5.0m)
+                            -- Non-owner: Show 3D text prompt when near locked owned house (within 5.0m)
                             if dist <= 5.0 and isLocked then
                                 local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
                                 local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"

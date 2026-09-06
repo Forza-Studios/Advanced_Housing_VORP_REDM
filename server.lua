@@ -2,8 +2,21 @@ local AllowedSteam = {
     ["steam:110000158767928"] = true
 }
 
--- Helper function to resolve player creator / character owner name
-local function GetPlayerOwnerId(src)
+-- Helper function to resolve player creator / character owner info
+local function GetPlayerOwnerInfo(src)
+    local name = nil
+    local steam = nil
+    local isAdmin = false
+
+    for _, id in ipairs(GetPlayerIdentifiers(src)) do
+        if string.sub(id, 1, 6) == "steam:" then
+            steam = id
+            if AllowedSteam[id] then
+                isAdmin = true
+            end
+        end
+    end
+
     if GetResourceState("vorp_core") == "started" then
         local ok, core = pcall(function() return exports.vorp_core:GetCore() end)
         if ok and core and core.getUser then
@@ -14,24 +27,28 @@ local function GetPlayerOwnerId(src)
                     local firstname = character.firstname or ""
                     local lastname = character.lastname or ""
                     local fullName = (firstname .. " " .. lastname):gsub("^%s*(.-)%s*$", "%1")
-                    local charIdentifier = character.charidentifier
                     if fullName ~= "" then
-                        return fullName
-                    elseif charIdentifier then
-                        return "Char #" .. tostring(charIdentifier)
+                        name = fullName
                     end
                 end
             end
         end
     end
 
-    -- Fallback to identifiers (Steam, License, or Player Name)
-    for _, id in ipairs(GetPlayerIdentifiers(src)) do
-        if string.sub(id, 1, 6) == "steam:" then
-            return id
-        end
+    if not name then
+        name = steam or GetPlayerName(src) or "Unknown Creator"
     end
-    return GetPlayerName(src) or "Unknown Creator"
+
+    return {
+        name = name,
+        steam = steam,
+        isAdmin = isAdmin
+    }
+end
+
+local function GetPlayerOwnerId(src)
+    local info = GetPlayerOwnerInfo(src)
+    return info.name
 end
 
 -- ===== SQL Auto-Executor & Schema Migration =====
@@ -95,11 +112,22 @@ RegisterNetEvent("coi_hm:requestOpen", function()
     })
 end)
 
--- Fetch houses from DB and sync to client
+-- Fetch houses from DB and sync to client with player owner identity
 local function FetchAndSendHouses(target)
     MySQL.query("SELECT * FROM houses ORDER BY id DESC", {}, function(result)
         local houses = result or {}
-        TriggerClientEvent("coi_hm:setHouses", target or -1, houses)
+        if target == -1 or not target then
+            for _, srcStr in ipairs(GetPlayers()) do
+                local pSrc = tonumber(srcStr)
+                if pSrc then
+                    local myInfo = GetPlayerOwnerInfo(pSrc)
+                    TriggerClientEvent("coi_hm:setHouses", pSrc, houses, myInfo)
+                end
+            end
+        else
+            local myInfo = GetPlayerOwnerInfo(target)
+            TriggerClientEvent("coi_hm:setHouses", target, houses, myInfo)
+        end
     end)
 end
 
@@ -261,6 +289,50 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
                 title = "Housing Manager",
                 description = ("Congratulations! You purchased '%s' for $%s!"):format(house.name, price),
                 type = "success"
+            })
+            FetchAndSendHouses(-1)
+        end)
+    end)
+end)
+
+-- Owner / Admin Toggle Door Lock Event
+RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
+    local src = source
+    houseId = tonumber(houseId)
+    if not houseId then return end
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = result[1]
+        local myInfo = GetPlayerOwnerInfo(src)
+
+        local isOwner = false
+        if house.owner and myInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.name)) then
+            isOwner = true
+        elseif house.owner and myInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.steam)) then
+            isOwner = true
+        elseif myInfo.isAdmin then
+            isOwner = true
+        end
+
+        if not isOwner then
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "You do not own this house.",
+                type = "error"
+            })
+            return
+        end
+
+        local newLocked = (house.locked == 1 or house.locked == true or house.locked == "1") and 0 or 1
+
+        MySQL.query("UPDATE houses SET locked = ? WHERE id = ?", { newLocked, houseId }, function()
+            local statusStr = (newLocked == 1) and "Locked" or "Unlocked"
+            print(("^2[coi_hm]^7 Owner/Admin '%s' toggled house #%s lock state to %s."):format(myInfo.name, houseId, statusStr))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Door %s!"):format(statusStr),
+                type = (newLocked == 1) and "error" or "success"
             })
             FetchAndSendHouses(-1)
         end)
