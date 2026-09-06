@@ -54,10 +54,16 @@ local function IsPlayerHouseOwner(house)
     if not house or not house.owner or house.owner == "" or house.owner == "Unowned" or house.owner == "For Sale" then
         return false
     end
+    if MyOwnerInfo.isAdmin then
+        return true
+    end
     if MyOwnerInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.name)) then
         return true
     end
     if MyOwnerInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.steam)) then
+        return true
+    end
+    if MyOwnerInfo.charIdentifier and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.charIdentifier)) then
         return true
     end
     return false
@@ -472,7 +478,7 @@ CreateThread(function()
                     end
                 end
 
-                -- Check House Stash Location Interaction ([F] key)
+                -- Check House Stash Location Interaction ([F] key - Owner / Admin Only)
                 local sx = tonumber(house.stashX)
                 local sy = tonumber(house.stashY)
                 local sz = tonumber(house.stashZ)
@@ -480,13 +486,18 @@ CreateThread(function()
                     local sDist = #(coords - vector3(sx, sy, sz))
                     if sDist <= 2.5 then
                         sleep = 0
-                        local limit = tonumber(house.stashLimit) or 100
-                        local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[F]~s~ to Open Storage"
-                        DrawText3D(sx, sy, sz + 0.15, text)
+                        if isOwner then
+                            local limit = tonumber(house.stashLimit) or 100
+                            local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[F]~s~ to Open Storage"
+                            DrawText3D(sx, sy, sz + 0.15, text)
 
-                        if sDist <= 2.0 and IsControlJustPressed(0, 0xB2F377E8) then -- F key (INPUT_INTERACT_OPTION2)
-                            TriggerServerEvent("coi_hm:openStash", house.id)
-                            Wait(1000)
+                            if sDist <= 2.0 and IsControlJustPressed(0, 0xB2F377E8) then -- F key (INPUT_INTERACT_OPTION2)
+                                TriggerServerEvent("coi_hm:openStash", house.id)
+                                Wait(1000)
+                            end
+                        else
+                            local text = "~e~HOUSE STASH~s~\nOwner Access Only"
+                            DrawText3D(sx, sy, sz + 0.15, text)
                         end
                     end
                 end

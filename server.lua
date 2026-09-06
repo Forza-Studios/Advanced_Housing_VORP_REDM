@@ -7,6 +7,7 @@ local AllowedSteam = {
 local function GetPlayerOwnerInfo(src)
     local name = nil
     local steam = nil
+    local charIdentifier = nil
     local isAdmin = false
 
     for _, id in ipairs(GetPlayerIdentifiers(src)) do
@@ -25,6 +26,7 @@ local function GetPlayerOwnerInfo(src)
             if user then
                 local character = user.getUsedCharacter
                 if character then
+                    charIdentifier = character.charIdentifier or character.identifier
                     local firstname = character.firstname or ""
                     local lastname = character.lastname or ""
                     local fullName = (firstname .. " " .. lastname):gsub("^%s*(.-)%s*$", "%1")
@@ -43,6 +45,7 @@ local function GetPlayerOwnerInfo(src)
     return {
         name = name,
         steam = steam,
+        charIdentifier = charIdentifier,
         isAdmin = isAdmin
     }
 end
@@ -310,6 +313,32 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
         name, location, price, owner, status, locked, blipSprite, blipLabel, stashLimit, houseId
     }, function(result)
         print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Status: %s, StashLimit: %skg)."):format(houseId, owner, status, stashLimit))
+
+        -- Live sync updated stashLimit with vorp_inventory
+        local inventoryId = "house_stash_" .. tostring(houseId)
+        if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
+            local invData = {
+                id = inventoryId,
+                name = (name or ("House #" .. houseId)) .. " Storage",
+                limit = stashLimit,
+                acceptWeapons = true,
+                shared = true,
+                ignoreItemStackLimit = true,
+                whitelistItems = false,
+                UsePermissions = false,
+                UseBlackList = false,
+                whitelistWeapons = false
+            }
+            if exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
+                if exports.vorp_inventory.updateCustomInventoryData then
+                    pcall(function() exports.vorp_inventory:updateCustomInventoryData(inventoryId, invData) end)
+                end
+                if exports.vorp_inventory.setCustomInventoryLimit then
+                    pcall(function() exports.vorp_inventory:setCustomInventoryLimit(inventoryId, stashLimit) end)
+                end
+            end
+        end
+
         TriggerClientEvent("ox_lib:notify", src, {
             title = "Housing Manager",
             description = ("House #%s updated successfully!"):format(houseId),
@@ -565,7 +594,7 @@ RegisterNetEvent("coi_hm:setStashCoords", function(data)
     end)
 end)
 
--- Open House Stash Event (vorp_inventory integration)
+-- Open House Stash Event (vorp_inventory integration - Owner Only)
 RegisterNetEvent("coi_hm:openStash", function(houseId)
     local src = source
     houseId = tonumber(houseId)
@@ -577,19 +606,25 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
         local myInfo = GetPlayerOwnerInfo(src)
 
         local isOwner = false
-        if house.owner and myInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.name)) then
-            isOwner = true
-        elseif house.owner and myInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.steam)) then
-            isOwner = true
-        elseif myInfo.isAdmin then
+        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+            local ownerLower = string.lower(tostring(house.owner))
+            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+                isOwner = true
+            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+                isOwner = true
+            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+                isOwner = true
+            end
+        end
+
+        if myInfo.isAdmin then
             isOwner = true
         end
 
-        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1")
-        if isLocked and not isOwner then
+        if not isOwner then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = "This house is locked.",
+                description = "Storage access is restricted to the house owner.",
                 type = "error"
             })
             return
@@ -599,20 +634,30 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
         local stashLimit = tonumber(house.stashLimit) or 100
 
         if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
-            if not exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
-                exports.vorp_inventory:registerInventory({
-                    id = inventoryId,
-                    name = (house.name or ("House #" .. houseId)) .. " Storage",
-                    limit = stashLimit,
-                    acceptWeapons = true,
-                    shared = true,
-                    ignoreItemStackLimit = true,
-                    whitelistItems = false,
-                    UsePermissions = false,
-                    UseBlackList = false,
-                    whitelistWeapons = false
-                })
+            local invData = {
+                id = inventoryId,
+                name = (house.name or ("House #" .. houseId)) .. " Storage",
+                limit = stashLimit,
+                acceptWeapons = true,
+                shared = true,
+                ignoreItemStackLimit = true,
+                whitelistItems = false,
+                UsePermissions = false,
+                UseBlackList = false,
+                whitelistWeapons = false
+            }
+
+            if exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
+                if exports.vorp_inventory.updateCustomInventoryData then
+                    pcall(function() exports.vorp_inventory:updateCustomInventoryData(inventoryId, invData) end)
+                end
+                if exports.vorp_inventory.setCustomInventoryLimit then
+                    pcall(function() exports.vorp_inventory:setCustomInventoryLimit(inventoryId, stashLimit) end)
+                end
+            else
+                exports.vorp_inventory:registerInventory(invData)
             end
+
             exports.vorp_inventory:openInventory(src, inventoryId)
         else
             TriggerClientEvent("ox_lib:notify", src, {
