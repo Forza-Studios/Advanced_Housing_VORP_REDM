@@ -16,6 +16,7 @@ files {
 }
 
 client_scripts {
+    'door_hashes.lua',
     'client.lua'
 }
 

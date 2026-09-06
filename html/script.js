@@ -222,6 +222,10 @@ function attachEvents() {
     });
 }
 
+let currentScanRadius = 10.0;
+let currentScanFilter = "";
+let lastScanResult = { count: 0, doors: [] };
+
 // ===== Add House Modal =====
 function openAddHouseModal() {
     // Remove existing modal if any
@@ -235,14 +239,14 @@ function openAddHouseModal() {
     modal.innerHTML = `
         <div class="modal-panel">
             <div class="modal-header">
-                <h2>🚪 Add New House</h2>
+                <h2>🚪 Add New House / Scan Doors</h2>
                 <button class="modal-close-btn" id="modalCloseBtn">✕</button>
             </div>
             <div class="modal-body" id="modalBody">
                 <div class="scan-loading">
                     <div class="scan-spinner"></div>
                     <div class="scan-text">Scanning for nearest doors...</div>
-                    <div class="scan-subtext">Checking nearby objects in a 10m radius</div>
+                    <div class="scan-subtext">Searching map database & world objects in a 10m radius</div>
                 </div>
             </div>
         </div>
@@ -261,8 +265,8 @@ function openAddHouseModal() {
         if (e.target === modal) closeModal();
     });
 
-    // Trigger the scan
-    scanForDoors();
+    // Trigger initial scan
+    scanForDoors(10.0);
 }
 
 function closeModal() {
@@ -272,22 +276,22 @@ function closeModal() {
     setTimeout(() => modal.remove(), 250);
 }
 
-async function scanForDoors() {
+async function scanForDoors(radius = currentScanRadius) {
+    currentScanRadius = parseFloat(radius) || 10.0;
     const modalBody = document.getElementById("modalBody");
     if (!modalBody) return;
 
     try {
         const response = await fetch(`https://${GetParentResourceName()}/scanDoors`, {
             method: "POST",
-            body: JSON.stringify({ radius: 10.0 })
+            body: JSON.stringify({ radius: currentScanRadius })
         });
         const result = await response.json();
-
-        // Small delay so the user sees the loading animation
-        setTimeout(() => renderDoorResults(result), 800);
+        lastScanResult = result || { count: 0, doors: [] };
+        renderDoorResults(lastScanResult);
     } catch (e) {
-        // NUI fetch failed
-        renderDoorResults({ count: 0, doors: [] });
+        // NUI fetch failed or running in browser test
+        renderDoorResults(lastScanResult || { count: 0, doors: [] });
     }
 }
 
@@ -303,58 +307,117 @@ function renderDoorResults(result) {
     const modalBody = document.getElementById("modalBody");
     if (!modalBody) return;
 
-    if (!result || result.count === 0) {
-        modalBody.innerHTML = `
-            <div class="scan-empty">
-                <div class="scan-empty-icon">🔍</div>
-                <div class="scan-empty-title">No DoorSystem Doors Found</div>
-                <div class="scan-empty-sub">No registered doors were detected within 10m of your position.</div>
-            </div>
-        `;
-        return;
+    let doors = (result && result.doors) ? result.doors : [];
+    
+    if (currentScanFilter.trim()) {
+        const q = currentScanFilter.toLowerCase();
+        doors = doors.filter(d =>
+            String(d.doorHash).includes(q) ||
+            String(d.model).includes(q) ||
+            (d.modelName && d.modelName.toLowerCase().includes(q))
+        );
     }
 
     modalBody.innerHTML = `
+        <div class="scan-filter-bar">
+            <input type="text" class="scan-filter-input" id="scanFilterInput" placeholder="Filter by door hash or model name..." value="${currentScanFilter}" />
+            <div class="scan-radius-group">
+                <label for="scanRadiusSelect">Radius:</label>
+                <select class="scan-radius-select" id="scanRadiusSelect">
+                    <option value="5"${currentScanRadius === 5 ? " selected" : ""}>5m</option>
+                    <option value="10"${currentScanRadius === 10 ? " selected" : ""}>10m</option>
+                    <option value="20"${currentScanRadius === 20 ? " selected" : ""}>20m</option>
+                    <option value="50"${currentScanRadius === 50 ? " selected" : ""}>50m</option>
+                </select>
+            </div>
+        </div>
         <div class="scan-results-header">
-            <span class="scan-found-count">Found <strong>${result.count}</strong> door${result.count !== 1 ? "s" : ""}</span>
-            <span class="scan-found-sub">Validated via DoorSystem</span>
+            <span class="scan-found-count">Found <strong>${doors.length}</strong> of <strong>${(result && result.count) || 0}</strong> door${(result && result.count) !== 1 ? "s" : ""}</span>
+            <span class="scan-found-sub">Map Database & DoorSystem</span>
         </div>
-        <div class="scan-results-list">
-            ${result.doors.map((d, i) => {
-                const stateInfo = getDoorStateLabel(d.state);
-                return `
-                <div class="door-card" style="animation-delay: ${i * 0.06}s">
-                    <div class="door-card-header">
-                        <span class="door-card-icon">🚪</span>
-                        <span class="door-card-entity">Door #${d.doorHash}</span>
-                        <span class="door-card-dist">${d.distance}m</span>
+        ${doors.length === 0 ? `
+            <div class="scan-empty">
+                <div class="scan-empty-icon">🔍</div>
+                <div class="scan-empty-title">No Doors Found</div>
+                <div class="scan-empty-sub">No doors detected within ${currentScanRadius}m radius matching criteria.</div>
+            </div>
+        ` : `
+            <div class="scan-results-list">
+                ${doors.map((d, i) => {
+                    const stateInfo = getDoorStateLabel(d.state);
+                    return `
+                    <div class="door-card" style="animation-delay: ${i * 0.04}s">
+                        <div class="door-card-header">
+                            <span class="door-card-icon">🚪</span>
+                            <span class="door-card-entity">${d.modelName || 'Door #' + d.doorHash}</span>
+                            <span class="door-card-dist">${d.distance}m</span>
+                        </div>
+                        <div class="door-card-details">
+                            <div class="door-detail">
+                                <span class="door-detail-label">Door Hash</span>
+                                <span class="door-detail-value">${d.doorHash}</span>
+                            </div>
+                            <div class="door-detail">
+                                <span class="door-detail-label">Model Name</span>
+                                <span class="door-detail-value">${d.modelName || 'Unknown'}</span>
+                            </div>
+                            <div class="door-detail">
+                                <span class="door-detail-label">Model Hash</span>
+                                <span class="door-detail-value">${d.model}</span>
+                            </div>
+                            <div class="door-detail">
+                                <span class="door-detail-label">State</span>
+                                <span class="door-detail-value ${stateInfo.cls}">${stateInfo.text}</span>
+                            </div>
+                            <div class="door-detail" style="grid-column: span 2;">
+                                <span class="door-detail-label">Position (X, Y, Z)</span>
+                                <span class="door-detail-value door-coords">${d.x}, ${d.y}, ${d.z}</span>
+                            </div>
+                        </div>
+                        <div class="door-card-actions">
+                            <button class="door-select-btn" data-hash="${d.doorHash}">Select as House Door</button>
+                        </div>
                     </div>
-                    <div class="door-card-details">
-                        <div class="door-detail">
-                            <span class="door-detail-label">Door Hash</span>
-                            <span class="door-detail-value">${d.doorHash}</span>
-                        </div>
-                        <div class="door-detail">
-                            <span class="door-detail-label">Model Hash</span>
-                            <span class="door-detail-value">${d.model}</span>
-                        </div>
-                        <div class="door-detail">
-                            <span class="door-detail-label">State</span>
-                            <span class="door-detail-value ${stateInfo.cls}">${stateInfo.text}</span>
-                        </div>
-                        <div class="door-detail">
-                            <span class="door-detail-label">Position</span>
-                            <span class="door-detail-value door-coords">${d.x}, ${d.y}, ${d.z}</span>
-                        </div>
-                    </div>
-                    <div class="door-card-actions">
-                        <button class="door-select-btn">Select as Door</button>
-                    </div>
-                </div>
-                `;
-            }).join("")}
-        </div>
+                    `;
+                }).join("")}
+            </div>
+        `}
     `;
+
+    // Attach radius listener
+    const radiusSelect = document.getElementById("scanRadiusSelect");
+    if (radiusSelect) {
+        radiusSelect.addEventListener("change", (e) => {
+            const val = parseFloat(e.target.value);
+            scanForDoors(val);
+        });
+    }
+
+    // Attach filter input listener
+    const filterInput = document.getElementById("scanFilterInput");
+    if (filterInput) {
+        filterInput.addEventListener("input", (e) => {
+            currentScanFilter = e.target.value;
+            renderDoorResults(lastScanResult);
+            const el = document.getElementById("scanFilterInput");
+            if (el) {
+                el.focus();
+                el.setSelectionRange(el.value.length, el.value.length);
+            }
+        });
+    }
+
+    // Attach select door buttons
+    document.querySelectorAll(".door-select-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const doorHash = btn.getAttribute("data-hash");
+            const selectedDoor = (lastScanResult.doors || []).find(d => String(d.doorHash) === String(doorHash));
+            if (selectedDoor) {
+                console.log("Selected Door:", selectedDoor);
+                closeModal();
+            }
+        });
+    });
 }
 
 function closeDashboard() {
