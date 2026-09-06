@@ -673,3 +673,341 @@ body {
         transform: translate(-50%, -48%) scale(0.96);
     }
 }
+
+/* ===== Door Scan Modal ===== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+}
+
+.modal-overlay.closing {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.modal-panel {
+    width: 420px;
+    max-height: 520px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--panel-radius);
+    box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(255, 255, 255, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: modalIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transform: translateY(10px) scale(0.97);
+}
+
+.modal-overlay.closing .modal-panel {
+    animation: modalOut 0.2s ease forwards;
+}
+
+@keyframes modalIn {
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes modalOut {
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+    }
+}
+
+/* ── Modal Header ── */
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
+.modal-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.modal-close-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    font-family: 'Inter', sans-serif;
+}
+
+.modal-close-btn:hover {
+    color: #c07070;
+    border-color: rgba(139, 77, 77, 0.3);
+    background: rgba(139, 77, 77, 0.08);
+}
+
+/* ── Modal Body ── */
+.modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 22px;
+}
+
+.modal-body::-webkit-scrollbar {
+    width: 4px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+}
+
+/* ── Loading State ── */
+.scan-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 0;
+    gap: 16px;
+}
+
+.scan-spinner {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 3px solid var(--border-subtle);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.scan-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.scan-subtext {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* ── Empty State ── */
+.scan-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 36px 0;
+    gap: 8px;
+}
+
+.scan-empty-icon {
+    font-size: 32px;
+    margin-bottom: 6px;
+    opacity: 0.5;
+}
+
+.scan-empty-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.scan-empty-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* ── Results Header ── */
+.scan-results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.scan-found-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.scan-found-count strong {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.scan-found-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ── Results List ── */
+.scan-results-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* ── Door Card ── */
+.door-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--card-radius);
+    padding: 14px 16px;
+    transition: all 0.2s ease;
+    animation: doorCardIn 0.3s ease forwards;
+    opacity: 0;
+}
+
+.door-card:hover {
+    border-color: var(--border-glow);
+    background: var(--bg-card-hover);
+}
+
+@keyframes doorCardIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.door-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.door-card-icon {
+    font-size: 16px;
+}
+
+.door-card-entity {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.door-card-dist {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-dim);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(212, 175, 55, 0.15);
+}
+
+/* ── Door Details Grid ── */
+.door-card-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 12px;
+    margin-bottom: 10px;
+}
+
+.door-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.door-detail-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+}
+
+.door-detail-value {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.door-detail-value.val-yes {
+    color: #5cc08a;
+}
+
+.door-detail-value.val-no {
+    color: #c07070;
+}
+
+.door-coords {
+    font-size: 11px;
+    font-family: 'Inter', monospace;
+    color: var(--text-muted);
+}
+
+/* ── Door Card Actions ── */
+.door-card-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.door-select-btn {
+    background: var(--accent-dim);
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    color: var(--accent);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.door-select-btn:hover {
+    background: rgba(212, 175, 55, 0.2);
+    border-color: var(--accent-glow);
+    box-shadow: 0 2px 10px rgba(212, 175, 55, 0.15);
+}
+
+.door-select-btn:active {
+    transform: scale(0.97);
+}
+
