@@ -80,6 +80,9 @@ function buildDashboard(houses, filter = "all", search = "") {
                     <option value="all"${filter === "all" ? " selected" : ""}>All Locations</option>
                     ${locations.map(loc => `<option value="${loc}"${filter === loc ? " selected" : ""}>${loc}</option>`).join("")}
                 </select>
+                <button class="btn-secondary" id="refreshBtn" title="Refresh houses from database">
+                    <span>🔄</span> Refresh
+                </button>
                 <button class="btn-primary" id="addHouseBtn">
                     <span>＋</span> Add House
                 </button>
@@ -125,7 +128,13 @@ function buildDashboard(houses, filter = "all", search = "") {
                     </tr>
                 </thead>
                 <tbody>
-                    ${filtered.map((h, i) => `
+                    ${filtered.length === 0 ? `
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                            No houses saved in database yet. Click <strong>＋ Add House</strong> to scan doors and add houses!
+                        </td>
+                    </tr>
+                    ` : filtered.map((h, i) => `
                     <tr>
                         <td class="col-id">#${String(h.id).padStart(3, "0")}</td>
                         <td>
@@ -142,11 +151,11 @@ function buildDashboard(houses, filter = "all", search = "") {
                         </td>
                         <td class="col-price">${fmt(h.price)}</td>
                         <td class="col-owner">${h.owner || "Unowned"}</td>
-                        <td><span class="status-badge ${h.status}">${h.status.charAt(0).toUpperCase() + h.status.slice(1)}</span></td>
+                        <td><span class="status-badge ${h.status || 'available'}">${(h.status || 'available').charAt(0).toUpperCase() + (h.status || 'available').slice(1)}</span></td>
                         <td>
                             <div class="action-btns">
-                                <button class="action-btn edit" title="Edit">✏️</button>
-                                <button class="action-btn delete" title="Delete">🗑️</button>
+                                <button class="action-btn edit" title="Edit" data-id="${h.id}">✏️</button>
+                                <button class="action-btn delete" title="Delete" data-id="${h.id}">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -197,6 +206,16 @@ function attachEvents() {
         });
     }
 
+    // Refresh
+    const refreshBtn = document.getElementById("refreshBtn");
+    if (refreshBtn) {
+        refreshBtn.addEventListener("click", () => {
+            try {
+                fetch(`https://${GetParentResourceName()}/getHouses`, { method: "POST" });
+            } catch (e) {}
+        });
+    }
+
     // Close
     const closeBtn = document.getElementById("closeBtn");
     if (closeBtn) {
@@ -213,7 +232,22 @@ function attachEvents() {
         });
     }
 
-    // Nav items (visual only for now)
+    // Delete House
+    document.querySelectorAll(".action-btn.delete").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const houseId = btn.getAttribute("data-id");
+            if (houseId) {
+                try {
+                    fetch(`https://${GetParentResourceName()}/deleteHouse`, {
+                        method: "POST",
+                        body: JSON.stringify({ id: houseId })
+                    });
+                } catch (e) {}
+            }
+        });
+    });
+
+    // Nav items
     document.querySelectorAll(".nav-item").forEach(item => {
         item.addEventListener("click", () => {
             document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
@@ -407,16 +441,113 @@ function renderDoorResults(result) {
         });
     }
 
-    // Attach select door buttons
+    // Attach select door buttons -> Opens Save House Modal
     document.querySelectorAll(".door-select-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const doorHash = btn.getAttribute("data-hash");
             const selectedDoor = (lastScanResult.doors || []).find(d => String(d.doorHash) === String(doorHash));
             if (selectedDoor) {
-                console.log("Selected Door:", selectedDoor);
-                closeModal();
+                openSaveHouseModal(selectedDoor);
             }
         });
+    });
+}
+
+// ===== Save House Modal Form =====
+function openSaveHouseModal(door) {
+    closeModal(); // close door scan modal
+
+    const existing = document.getElementById("saveHouseModal");
+    if (existing) existing.remove();
+
+    const modal = document.createElement("div");
+    modal.id = "saveHouseModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-panel" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>🏠 Save House to Database</h2>
+                <button class="modal-close-btn" id="saveModalCloseBtn">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">House Name</label>
+                        <input type="text" id="saveHouseName" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${door.modelName || ('House #' + door.doorHash)}" />
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Location</label>
+                            <select id="saveHouseLocation" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                                <option value="Valentine">Valentine</option>
+                                <option value="Saint Denis">Saint Denis</option>
+                                <option value="Blackwater">Blackwater</option>
+                                <option value="Rhodes">Rhodes</option>
+                                <option value="Strawberry">Strawberry</option>
+                                <option value="Armadillo">Armadillo</option>
+                                <option value="Tumbleweed">Tumbleweed</option>
+                                <option value="Annesburg">Annesburg</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
+                            <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
+                        </div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <div style="color: var(--accent); font-weight: 700;">Selected Door Information</div>
+                        <div><strong>Door Hash:</strong> ${door.doorHash}</div>
+                        <div><strong>Model Name:</strong> ${door.modelName || 'Unknown'}</div>
+                        <div><strong>Model Hash:</strong> ${door.model}</div>
+                        <div><strong>Position:</strong> ${door.x}, ${door.y}, ${door.z}</div>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                        <button class="btn-secondary" id="saveModalCancelBtn">Cancel</button>
+                        <button class="btn-primary" id="confirmSaveHouseBtn">💾 Save House</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add("active"));
+
+    const closeSaveModal = () => {
+        modal.classList.add("closing");
+        setTimeout(() => modal.remove(), 250);
+    };
+
+    document.getElementById("saveModalCloseBtn").addEventListener("click", closeSaveModal);
+    document.getElementById("saveModalCancelBtn").addEventListener("click", closeSaveModal);
+    document.getElementById("confirmSaveHouseBtn").addEventListener("click", () => {
+        const houseName = document.getElementById("saveHouseName").value.trim() || ("House #" + door.doorHash);
+        const location = document.getElementById("saveHouseLocation").value;
+        const price = parseFloat(document.getElementById("saveHousePrice").value) || 500;
+
+        const payload = {
+            name: houseName,
+            location: location,
+            price: price,
+            owner: null,
+            status: "available",
+            doorHash: door.doorHash,
+            modelHash: door.model,
+            modelName: door.modelName,
+            x: door.x,
+            y: door.y,
+            z: door.z,
+            heading: door.heading || 0.0
+        };
+
+        try {
+            fetch(`https://${GetParentResourceName()}/createHouse`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        } catch(e) {}
+
+        closeSaveModal();
     });
 }
 

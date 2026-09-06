@@ -11,6 +11,31 @@ RegisterNetEvent("coi_hm:open", function()
         action="open",
         data=GetNearestDoorData()
     })
+    TriggerServerEvent("coi_hm:requestHouses")
+end)
+
+RegisterNetEvent("coi_hm:setHouses", function(houses)
+    SendNUIMessage({
+        action = "setHouses",
+        houses = houses or {}
+    })
+end)
+
+RegisterNUICallback("getHouses", function(_, cb)
+    TriggerServerEvent("coi_hm:requestHouses")
+    cb("ok")
+end)
+
+RegisterNUICallback("createHouse", function(data, cb)
+    TriggerServerEvent("coi_hm:createHouse", data)
+    cb("ok")
+end)
+
+RegisterNUICallback("deleteHouse", function(data, cb)
+    if data and data.id then
+        TriggerServerEvent("coi_hm:deleteHouse", data.id)
+    end
+    cb("ok")
 end)
 
 RegisterNUICallback("close", function(_,cb)
@@ -20,6 +45,7 @@ RegisterNUICallback("close", function(_,cb)
 end)
 
 RegisterNUICallback("refresh", function(_,cb)
+    TriggerServerEvent("coi_hm:requestHouses")
     cb(GetNearestDoorData())
 end)
 
