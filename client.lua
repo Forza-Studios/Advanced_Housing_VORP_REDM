@@ -54,9 +54,6 @@ local function IsPlayerHouseOwner(house)
     if not house or not house.owner or house.owner == "" or house.owner == "Unowned" or house.owner == "For Sale" then
         return false
     end
-    if MyOwnerInfo.isAdmin then
-        return true
-    end
     if MyOwnerInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.name)) then
         return true
     end

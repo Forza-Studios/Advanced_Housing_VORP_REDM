@@ -1,5 +1,6 @@
 local AllowedSteam = {
-    ["steam:110000158767928"] = true
+    ["steam:110000158767928"] = true,
+    ["steam:11000016de0b0ff"] = true
 }
 
 -- Helper function to resolve player creator / character owner info
@@ -310,8 +311,6 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
         if house.owner and myInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.name)) then
             isOwner = true
         elseif house.owner and myInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.steam)) then
-            isOwner = true
-        elseif myInfo.isAdmin then
             isOwner = true
         end
 
