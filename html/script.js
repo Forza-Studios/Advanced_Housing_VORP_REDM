@@ -1,18 +1,7 @@
 // ===== COI Housing Manager — Dashboard Script =====
 
-// Dummy data for the dashboard
-const DUMMY_HOUSES = [
-    { id: 1, name: "Valentine Cabin", location: "Valentine", price: 750, owner: "John Doe", status: "owned" },
-    { id: 2, name: "Strawberry House", location: "Strawberry", price: 1200, owner: null, status: "available" },
-    { id: 3, name: "Saint Denis Apartment", location: "Saint Denis", price: 2500, owner: "Jane Smith", status: "owned" },
-    { id: 4, name: "Rhodes Ranch", location: "Rhodes", price: 1800, owner: null, status: "available" },
-    { id: 5, name: "Colter Lodge", location: "Colter", price: 3000, owner: null, status: "available" },
-    { id: 6, name: "Lagras Shack", location: "Lagras", price: 900, owner: "Mike Brown", status: "owned" },
-    { id: 7, name: "Blackwater Manor", location: "Blackwater", price: 4200, owner: "Sarah Wilson", status: "owned" },
-    { id: 8, name: "Tumbleweed Outpost", location: "Tumbleweed", price: 600, owner: null, status: "locked" },
-];
-
-const HOUSE_ICONS = ["🏚️", "🏠", "🏛️", "🏡", "🏔️", "🛖", "🏘️", "🌵"];
+// House data — populated from server
+let houseData = [];
 
 // Unique locations extracted from data
 function getLocations(houses) {
@@ -141,7 +130,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                         <td class="col-id">#${String(h.id).padStart(3, "0")}</td>
                         <td>
                             <div class="house-name-cell">
-                                <div class="house-thumb">${HOUSE_ICONS[i % HOUSE_ICONS.length]}</div>
+                                <div class="house-thumb">🏠</div>
                                 <span class="house-name-text">${h.name}</span>
                             </div>
                         </td>
@@ -181,7 +170,7 @@ let currentSearch = "";
 
 function renderDashboard() {
     const dashboard = document.getElementById("dashboard");
-    dashboard.innerHTML = buildDashboard(DUMMY_HOUSES, currentFilter, currentSearch);
+    dashboard.innerHTML = buildDashboard(houseData, currentFilter, currentSearch);
     attachEvents();
 }
 
@@ -297,17 +286,8 @@ async function scanForDoors() {
         // Small delay so the user sees the loading animation
         setTimeout(() => renderDoorResults(result), 800);
     } catch (e) {
-        // Running outside NUI — show dummy data for testing
-        setTimeout(() => {
-            renderDoorResults({
-                count: 3,
-                doors: [
-                    { doorHash: 1948573021, model: -1504838576, distance: "1.24", state: 1, x: "-245.120", y: "732.540", z: "117.230" },
-                    { doorHash: 832641057, model: 1327939172, distance: "2.87", state: 0, x: "-243.800", y: "734.100", z: "117.230" },
-                    { doorHash: -476209183, model: -876291034, distance: "4.55", state: 1, x: "-247.650", y: "730.200", z: "117.230" },
-                ]
-            });
-        }, 1200);
+        // NUI fetch failed
+        renderDoorResults({ count: 0, doors: [] });
     }
 }
 
