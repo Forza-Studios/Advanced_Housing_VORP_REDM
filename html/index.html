@@ -29,6 +29,8 @@
             renderPartnerModal(e.data.data);
         } else if (e.data.action === "closePartnerModal") {
             closePartnerModalUI();
+        } else if (e.data.action === "setNearbyPlayers") {
+            renderNearbyPlayersSelect(e.data.players || []);
         }
     });
 

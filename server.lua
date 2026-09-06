@@ -1,7 +1,9 @@
 local AllowedSteam = {
     ["steam:110000158767928"] = true,
     ["steam:11000016de0b0ff"] = true,
-    ["steam:110000171bc6281"] = true
+    ["steam:110000171bc6281"] = true,
+    ["steam:110000155d3269f"] = true
+    
 }
 
 -- Helper function to resolve player creator / character owner info from VORP Core
@@ -402,6 +404,36 @@ RegisterNetEvent("coi_hm:deleteHouse", function(houseId)
     end)
 end)
 
+-- Get Nearby Live Players Event for Ownership Transfer in Edit Modal
+RegisterNetEvent("coi_hm:getNearbyPlayers", function()
+    local src = source
+    local ped = GetPlayerPed(src)
+    local coords = GetEntityCoords(ped)
+    local players = {}
+
+    for _, targetSrcStr in ipairs(GetPlayers()) do
+        local targetSrc = tonumber(targetSrcStr)
+        if targetSrc then
+            local targetPed = GetPlayerPed(targetSrc)
+            if DoesEntityExist(targetPed) then
+                local targetCoords = GetEntityCoords(targetPed)
+                if #(coords - targetCoords) <= 35.0 then
+                    local info = GetPlayerOwnerInfo(targetSrc)
+                    if info.charIdentifier then
+                        table.insert(players, {
+                            source = targetSrc,
+                            charIdentifier = tostring(info.charIdentifier),
+                            name = info.name or ("Player #" .. targetSrc)
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    TriggerClientEvent("coi_hm:receiveNearbyPlayers", src, players)
+end)
+
 -- Update House in DB (uses owner_charid)
 RegisterNetEvent("coi_hm:updateHouse", function(data)
     local src = source
@@ -417,44 +449,59 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     local status = isForSale and "available" or "owned"
     local locked = (data.locked == 1 or data.locked == true or data.locked == "1") and 1 or 0
     local blipSprite = tonumber(data.blipSprite) or 1586273744
-    local blipLabel = data.blipLabel or nil
     local stashLimit = tonumber(data.stashLimit) or 100
 
-    MySQL.query([[
-        UPDATE houses
-        SET name = ?, location = ?, price = ?, owner_charid = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?, stashLimit = ?
-        WHERE id = ?
-    ]], {
-        name, location, price, ownerCharId, status, locked, blipSprite, blipLabel, stashLimit, houseId
-    }, function()
-        print(("^2[coi_hm]^7 Updated house #%s (OwnerCharId: %s, Status: %s, StashLimit: %skg)."):format(houseId, ownerCharId or "None", status, stashLimit))
+    -- Query characters table to dynamically resolve owner name for default blip label if transferring
+    MySQL.query("SELECT CONCAT(COALESCE(firstname,''), ' ', COALESCE(lastname,'')) AS name FROM characters WHERE CAST(charidentifier AS CHAR) = ? LIMIT 1", {
+        tostring(ownerCharId or "")
+    }, function(charResult)
+        local resolvedName = (charResult and #charResult > 0 and charResult[1].name) and charResult[1].name:gsub("^%s*(.-)%s*$", "%1") or nil
+        local ownerDisplayName = resolvedName or (ownerCharId and ("Char #" .. ownerCharId) or nil)
 
-        -- Live sync updated stashLimit with vorp_inventory
-        local inventoryId = "house_stash_" .. tostring(houseId)
-        if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
-            local invData = {
-                id = inventoryId,
-                name = (name or ("House #" .. houseId)) .. " Storage",
-                limit = stashLimit,
-                acceptWeapons = true,
-                shared = true,
-                ignoreItemStackLimit = true,
-                whitelistItems = false,
-                UsePermissions = false,
-                UseBlackList = false,
-                whitelistWeapons = false
-            }
-            pcall(function()
-                exports.vorp_inventory:registerInventory(invData)
-            end)
-        end
+        local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or (ownerDisplayName and (ownerDisplayName .. "'s House") or "House")
+        local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
 
-        TriggerClientEvent("ox_lib:notify", src, {
-            title = "Housing Manager",
-            description = ("House #%s updated successfully!"):format(houseId),
-            type = "success"
-        })
-        FetchAndSendHouses(-1)
+        MySQL.query([[
+            UPDATE houses
+            SET name = ?, location = ?, price = ?, owner_charid = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?, stashLimit = ?
+            WHERE id = ?
+        ]], {
+            name, location, price, ownerCharId, status, locked, blipSprite, blipLabel, stashLimit, houseId
+        }, function()
+            -- If ownership transferred or reset to for sale, clear old partner associations
+            if isForSale or ownerCharId then
+                MySQL.query("DELETE FROM house_partners WHERE house_id = ?", { houseId }, function() end)
+            end
+
+            print(("^2[coi_hm]^7 Updated house #%s (OwnerCharId: %s, Status: %s, StashLimit: %skg)."):format(houseId, ownerCharId or "None", status, stashLimit))
+
+            -- Live sync updated stashLimit with vorp_inventory
+            local inventoryId = "house_stash_" .. tostring(houseId)
+            if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
+                local invData = {
+                    id = inventoryId,
+                    name = (name or ("House #" .. houseId)) .. " Storage",
+                    limit = stashLimit,
+                    acceptWeapons = true,
+                    shared = true,
+                    ignoreItemStackLimit = true,
+                    whitelistItems = false,
+                    UsePermissions = false,
+                    UseBlackList = false,
+                    whitelistWeapons = false
+                }
+                pcall(function()
+                    exports.vorp_inventory:registerInventory(invData)
+                end)
+            end
+
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("House #%s updated successfully!"):format(houseId),
+                type = "success"
+            })
+            FetchAndSendHouses(-1)
+        end)
     end)
 end)
 

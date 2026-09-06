@@ -754,21 +754,21 @@ function openEditHouseModal(house) {
                             <input type="number" id="editHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.price || 500}" min="1" step="10" />
                         </div>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner CharID</label>
-                            <div style="display: flex; gap: 6px;">
-                                <input type="text" id="editHouseOwner" class="scan-filter-input" style="flex: 1; font-size: 13px;" value="${escapeHtml(house.owner_charid || house.owner || 'For Sale')}" placeholder="CharID or 'For Sale'" />
-                                <button type="button" class="btn-secondary" id="setForSaleBtn" title="Set status to For Sale" style="padding: 0 10px; font-size: 11px; white-space: nowrap;">🏷️ Sale</button>
-                            </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner CharID</label>
+                        <div style="display: flex; gap: 6px;">
+                            <input type="text" id="editHouseOwner" class="scan-filter-input" style="flex: 1; font-size: 13px;" value="${escapeHtml(house.owner_charid || house.owner || 'For Sale')}" placeholder="CharID or 'For Sale'" />
+                            <button type="button" class="btn-secondary" id="setForSaleBtn" title="Set status to For Sale" style="padding: 0 10px; font-size: 11px; white-space: nowrap;">🏷️ Sale</button>
+                            <button type="button" class="btn-primary" id="pickNearbyOwnerBtn" title="Pick Live Nearby Player to Transfer Ownership" style="padding: 0 10px; font-size: 11px; white-space: nowrap;">👤 Pick Nearby</button>
                         </div>
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Lock State</label>
-                            <select id="editHouseLocked" class="scan-radius-select" style="width: 100%; font-size: 13px;">
-                                <option value="1"${(house.locked == 1 || house.locked == true || house.locked == "1" || house.locked == undefined) ? " selected" : ""}>🔒 Locked (True)</option>
-                                <option value="0"${(house.locked == 0 || house.locked == false || house.locked == "0") ? " selected" : ""}>🔓 Unlocked (False)</option>
-                            </select>
-                        </div>
+                        <div id="nearbyOwnerSelectContainer" class="hidden" style="margin-top: 6px;"></div>
+                    </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Lock State</label>
+                        <select id="editHouseLocked" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                            <option value="1"${(house.locked == 1 || house.locked == true || house.locked == "1" || house.locked == undefined) ? " selected" : ""}>🔒 Locked (True)</option>
+                            <option value="0"${(house.locked == 0 || house.locked == false || house.locked == "0") ? " selected" : ""}>🔓 Unlocked (False)</option>
+                        </select>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
@@ -827,6 +827,23 @@ function openEditHouseModal(house) {
             document.getElementById("editHouseOwner").value = "For Sale";
             const price = parseFloat(document.getElementById("editHousePrice").value) || 500;
             document.getElementById("editHouseBlipLabel").value = `House For Sale ($${price})`;
+        });
+    }
+    const pickNearbyOwnerBtn = document.getElementById("pickNearbyOwnerBtn");
+    if (pickNearbyOwnerBtn) {
+        pickNearbyOwnerBtn.addEventListener("click", () => {
+            const container = document.getElementById("nearbyOwnerSelectContainer");
+            if (container) {
+                container.classList.remove("hidden");
+                container.innerHTML = `<div style="font-size:11px; color:var(--text-muted); padding:4px;">🔍 Scanning nearby players...</div>`;
+            }
+            try {
+                fetch(`https://${GetParentResourceName()}/getNearbyPlayers`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({})
+                });
+            } catch (e) {}
         });
     }
     const setStashPosBtn = document.getElementById("setStashPosBtn");
@@ -1107,3 +1124,39 @@ function removePartnerAction(houseId, pName, pSteam, pCharId) {
     } catch(e) {}
     closePartnerModalUI();
 }
+
+function renderNearbyPlayersSelect(players) {
+    const container = document.getElementById("nearbyOwnerSelectContainer");
+    if (!container) return;
+    container.classList.remove("hidden");
+    if (!players || players.length === 0) {
+        container.innerHTML = `<div style="font-size:11px; color:#ff4d4d; padding:4px;">No players found nearby (within 35m).</div>`;
+        return;
+    }
+    let html = `<select id="nearbyPlayerDropdown" class="scan-radius-select" style="width:100%; font-size:12px; margin-top:2px;">`;
+    html += `<option value="" disabled selected>-- Select Nearby Player --</option>`;
+    players.forEach(p => {
+        html += `<option value="${escapeHtml(p.charIdentifier)}" data-name="${escapeHtml(p.name)}">[ID ${p.source}] ${escapeHtml(p.name)} (${escapeHtml(p.charIdentifier)})</option>`;
+    });
+    html += `</select>`;
+    container.innerHTML = html;
+
+    const dropdown = document.getElementById("nearbyPlayerDropdown");
+    if (dropdown) {
+        dropdown.addEventListener("change", (e) => {
+            const selectedOpt = dropdown.options[dropdown.selectedIndex];
+            if (selectedOpt && selectedOpt.value) {
+                const charId = selectedOpt.value;
+                const charName = selectedOpt.getAttribute("data-name") || "Player";
+                const ownerInput = document.getElementById("editHouseOwner");
+                const blipInput = document.getElementById("editHouseBlipLabel");
+                if (ownerInput) ownerInput.value = charId;
+                if (blipInput) blipInput.value = `${charName}'s House`;
+                if (typeof showNotification === 'function') {
+                    showNotification(`Selected ${charName} (${charId}) as new owner`, "success");
+                }
+            }
+        });
+    }
+}
+

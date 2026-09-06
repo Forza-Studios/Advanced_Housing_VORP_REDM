@@ -2,7 +2,10 @@ local LoadedHouses = {}
 
 RegisterCommand("hm", function()
     TriggerServerEvent("coi_hm:requestOpen")
-end)
+end, false)
+
+RegisterKeyMapping("hm", "Open Housing Manager Dashboard", "keyboard", "F2")
+
 
 RegisterNetEvent("coi_hm:open", function()
     ui = true
@@ -189,6 +192,18 @@ end)
 RegisterNUICallback("closePartnerModal", function(_, cb)
     SetNuiFocus(false, false)
     cb("ok")
+end)
+
+RegisterNUICallback("getNearbyPlayers", function(_, cb)
+    TriggerServerEvent("coi_hm:getNearbyPlayers")
+    cb("ok")
+end)
+
+RegisterNetEvent("coi_hm:receiveNearbyPlayers", function(players)
+    SendNUIMessage({
+        action = "setNearbyPlayers",
+        players = players or {}
+    })
 end)
 
 RegisterNUICallback("refresh", function(_,cb)
