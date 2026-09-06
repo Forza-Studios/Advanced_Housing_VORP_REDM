@@ -140,7 +140,10 @@ function buildDashboard(houses, filter = "all", search = "") {
                         <td>
                             <div class="house-name-cell">
                                 <div class="house-thumb">🏠</div>
-                                <span class="house-name-text">${h.name}</span>
+                                <div>
+                                    <span class="house-name-text">${h.name}</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 ${(h.doors || []).length || 1} door${((h.doors || []).length || 1) !== 1 ? 's' : ''}</div>
+                                </div>
                             </div>
                         </td>
                         <td>
@@ -154,6 +157,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                         <td><span class="status-badge ${h.status || 'owned'}">${(h.locked === 1 || h.locked === true || h.locked === undefined) ? '🔒 Locked' : '🔓 Unlocked'}</span></td>
                         <td>
                             <div class="action-btns">
+                                <button class="action-btn doors" title="Manage Doors (${(h.doors || []).length || 1})" data-id="${h.id}">🚪</button>
                                 <button class="action-btn edit" title="Edit" data-id="${h.id}">✏️</button>
                                 <button class="action-btn delete" title="Delete" data-id="${h.id}">🗑️</button>
                             </div>
@@ -245,6 +249,19 @@ function attachEvents() {
         });
     });
 
+    // Manage Doors
+    document.querySelectorAll(".action-btn.doors").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const houseId = btn.getAttribute("data-id");
+            if (houseId) {
+                const targetHouse = houseData.find(h => String(h.id) === String(houseId));
+                if (targetHouse) {
+                    openManageDoorsModal(targetHouse);
+                }
+            }
+        });
+    });
+
     // Delete House
     document.querySelectorAll(".action-btn.delete").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -269,15 +286,104 @@ function attachEvents() {
     });
 }
 
+// ===== Manage House Doors Modal (Multi-Door CRUD) =====
+function openManageDoorsModal(house) {
+    const existing = document.getElementById("manageDoorsModal");
+    if (existing) existing.remove();
+
+    const doors = (house.doors && house.doors.length > 0) ? house.doors : [
+        { doorHash: house.doorHash, modelName: house.modelName, model: house.modelHash, x: house.x, y: house.y, z: house.z }
+    ];
+
+    const modal = document.createElement("div");
+    modal.id = "manageDoorsModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-panel" style="max-width: 550px;">
+            <div class="modal-header">
+                <h2>🚪 Manage Doors — House #${house.id}</h2>
+                <button class="modal-close-btn" id="doorsModalCloseBtn">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                    <div>
+                        <strong style="color: var(--accent); font-size: 14px;">${escapeHtml(house.name)}</strong>
+                        <div style="font-size: 11px; color: var(--text-muted);">${doors.length} door(s) attached to this house</div>
+                    </div>
+                    <button class="btn-primary" id="attachNewDoorBtn" style="font-size: 12px; padding: 6px 12px;">＋ Attach Nearby Door</button>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto;">
+                    ${doors.map((d, index) => `
+                        <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: 700; color: #fff; font-size: 12px;">Door #${index + 1}: ${escapeHtml(d.modelName || 'Door #' + d.doorHash)}</div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                    <strong>Hash:</strong> ${d.doorHash} | <strong>Pos:</strong> ${d.x}, ${d.y}, ${d.z}
+                                </div>
+                            </div>
+                            ${doors.length > 1 ? `
+                                <button class="action-btn delete detach-door-btn" data-hash="${d.doorHash}" title="Detach Door">🗑️</button>
+                            ` : `
+                                <span style="font-size: 10px; color: var(--text-muted); font-style: italic;">Primary Door</span>
+                            `}
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add("active"));
+
+    const closeDoorsModal = () => {
+        modal.classList.add("closing");
+        setTimeout(() => modal.remove(), 250);
+    };
+
+    document.getElementById("doorsModalCloseBtn").addEventListener("click", closeDoorsModal);
+
+    modal.querySelectorAll(".detach-door-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const doorHash = btn.getAttribute("data-hash");
+            if (doorHash) {
+                try {
+                    fetch(`https://${GetParentResourceName()}/removeDoorFromHouse`, {
+                        method: "POST",
+                        body: JSON.stringify({ houseId: house.id, doorHash: doorHash })
+                    });
+                } catch(e) {}
+                closeDoorsModal();
+            }
+        });
+    });
+
+    document.getElementById("attachNewDoorBtn").addEventListener("click", () => {
+        closeDoorsModal();
+        openAddHouseModalForAttach(house);
+    });
+}
+
+function openAddHouseModalForAttach(targetHouse) {
+    attachTargetHouse = targetHouse;
+    openAddHouseModal();
+}
+
 let currentScanRadius = 10.0;
 let currentScanFilter = "";
 let lastScanResult = { count: 0, doors: [] };
+let attachTargetHouse = null; // Set when attaching a door directly to an existing house
 
 // ===== Add House Modal =====
 function openAddHouseModal() {
     // Remove existing modal if any
     const existing = document.getElementById("doorScanModal");
     if (existing) existing.remove();
+
+    const titleText = attachTargetHouse 
+        ? `🚪 Attach Door to House #${attachTargetHouse.id} (${escapeHtml(attachTargetHouse.name)})`
+        : `🚪 Add New House / Scan Doors`;
 
     // Create modal overlay
     const modal = document.createElement("div");
@@ -286,7 +392,7 @@ function openAddHouseModal() {
     modal.innerHTML = `
         <div class="modal-panel">
             <div class="modal-header">
-                <h2>🚪 Add New House / Scan Doors</h2>
+                <h2>${titleText}</h2>
                 <button class="modal-close-btn" id="modalCloseBtn">✕</button>
             </div>
             <div class="modal-body" id="modalBody">
@@ -317,6 +423,7 @@ function openAddHouseModal() {
 }
 
 function closeModal() {
+    attachTargetHouse = null;
     const modal = document.getElementById("doorScanModal");
     if (!modal) return;
     modal.classList.add("closing");
@@ -454,13 +561,27 @@ function renderDoorResults(result) {
         });
     }
 
-    // Attach select door buttons -> Opens Save House Modal
+    // Attach select door buttons -> Attach to existing house or open Save House Modal
     document.querySelectorAll(".door-select-btn").forEach(btn => {
+        if (attachTargetHouse) {
+            btn.textContent = `➕ Attach to House #${attachTargetHouse.id}`;
+            btn.style.background = "var(--accent)";
+        }
         btn.addEventListener("click", () => {
             const doorHash = btn.getAttribute("data-hash");
             const selectedDoor = (lastScanResult.doors || []).find(d => String(d.doorHash) === String(doorHash));
             if (selectedDoor) {
-                openSaveHouseModal(selectedDoor);
+                if (attachTargetHouse) {
+                    try {
+                        fetch(`https://${GetParentResourceName()}/addDoorToHouse`, {
+                            method: "POST",
+                            body: JSON.stringify({ houseId: attachTargetHouse.id, door: selectedDoor })
+                        });
+                    } catch(e) {}
+                    closeModal();
+                } else {
+                    openSaveHouseModal(selectedDoor);
+                }
             }
         });
     });

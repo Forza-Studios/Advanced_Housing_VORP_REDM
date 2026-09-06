@@ -77,12 +77,13 @@ CreateThread(function()
             `heading` FLOAT DEFAULT 0.0,
             `blipSprite` BIGINT DEFAULT 1586273744,
             `blipLabel` VARCHAR(128) DEFAULT NULL,
+            `doors` LONGTEXT DEFAULT NULL,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]], {}, function(result)
         print("^2[coi_hm]^7 SQL table `houses` initialized successfully.")
-        -- Migration check for existing table without locked, blipSprite, blipLabel columns
+        -- Migration check for existing table without locked, blipSprite, blipLabel, doors columns
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `locked` TINYINT(1) DEFAULT 1;
         ]], {}, function() end)
@@ -92,6 +93,30 @@ CreateThread(function()
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `blipLabel` VARCHAR(128) DEFAULT NULL;
         ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `doors` LONGTEXT DEFAULT NULL;
+        ]], {}, function()
+            -- Auto-migrate existing single-door records to doors JSON array
+            MySQL.query("SELECT id, doorHash, modelHash, modelName, x, y, z, heading, doors FROM houses", {}, function(rows)
+                if rows then
+                    for _, row in ipairs(rows) do
+                        if not row.doors or row.doors == "" or row.doors == "[]" or row.doors == "null" then
+                            local initDoor = {
+                                doorHash = tostring(row.doorHash),
+                                modelHash = tostring(row.modelHash or ""),
+                                modelName = tostring(row.modelName or ""),
+                                x = tonumber(row.x) or 0.0,
+                                y = tonumber(row.y) or 0.0,
+                                z = tonumber(row.z) or 0.0,
+                                heading = tonumber(row.heading) or 0.0
+                            }
+                            local doorsJson = json.encode({ initDoor })
+                            MySQL.query("UPDATE houses SET doors = ? WHERE id = ?", { doorsJson, row.id }, function() end)
+                        end
+                    end
+                end
+            end)
+        end)
     end)
 end)
 
@@ -113,10 +138,43 @@ RegisterNetEvent("coi_hm:requestOpen", function()
     })
 end)
 
+-- Helper to format house doors array for client sync
+local function FormatHouseForClient(h)
+    local doors = {}
+    if h.doors and h.doors ~= "" then
+        if type(h.doors) == "string" then
+            local ok, parsed = pcall(json.decode, h.doors)
+            if ok and type(parsed) == "table" then
+                doors = parsed
+            end
+        elseif type(h.doors) == "table" then
+            doors = h.doors
+        end
+    end
+    if #doors == 0 then
+        table.insert(doors, {
+            doorHash = tostring(h.doorHash),
+            modelHash = tostring(h.modelHash or ""),
+            modelName = tostring(h.modelName or ""),
+            x = tonumber(h.x) or 0.0,
+            y = tonumber(h.y) or 0.0,
+            z = tonumber(h.z) or 0.0,
+            heading = tonumber(h.heading) or 0.0
+        })
+    end
+    h.doors = doors
+    return h
+end
+
 -- Fetch houses from DB and sync to client with player owner identity
 local function FetchAndSendHouses(target)
     MySQL.query("SELECT * FROM houses ORDER BY id DESC", {}, function(result)
-        local houses = result or {}
+        local rawHouses = result or {}
+        local houses = {}
+        for _, h in ipairs(rawHouses) do
+            table.insert(houses, FormatHouseForClient(h))
+        end
+
         if target == -1 or not target then
             for _, srcStr in ipairs(GetPlayers()) do
                 local pSrc = tonumber(srcStr)
@@ -161,11 +219,24 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or (owner .. "'s House")
     local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
 
+    local initDoors = {
+        {
+            doorHash = doorHash,
+            modelHash = modelHash,
+            modelName = modelName,
+            x = x,
+            y = y,
+            z = z,
+            heading = heading
+        }
+    }
+    local doorsJson = json.encode(initDoors)
+
     MySQL.insert([[
-        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doors)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel
+        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doorsJson
     }, function(insertId)
         if insertId then
             print(("^2[coi_hm]^7 Created new house #%s (Owner: '%s', Status: '%s', Price: $%s)."):format(insertId, owner, status, price))
@@ -332,6 +403,121 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
                 title = "Housing Manager",
                 description = ("Door %s!"):format(statusStr),
                 type = (newLocked == 1) and "error" or "success"
+            })
+            FetchAndSendHouses(-1)
+        end)
+    end)
+end)
+
+-- Add Door to Existing House Event
+RegisterNetEvent("coi_hm:addDoorToHouse", function(data)
+    local src = source
+    if not data or not data.houseId or not data.door then return end
+    local houseId = tonumber(data.houseId)
+    local newDoor = data.door
+    if not newDoor or not newDoor.doorHash then return end
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = result[1]
+        local doors = {}
+        if house.doors and house.doors ~= "" then
+            local ok, parsed = pcall(json.decode, house.doors)
+            if ok and type(parsed) == "table" then doors = parsed end
+        end
+        if #doors == 0 then
+            table.insert(doors, {
+                doorHash = tostring(house.doorHash),
+                modelHash = tostring(house.modelHash or ""),
+                modelName = tostring(house.modelName or ""),
+                x = tonumber(house.x) or 0.0,
+                y = tonumber(house.y) or 0.0,
+                z = tonumber(house.z) or 0.0,
+                heading = tonumber(house.heading) or 0.0
+            })
+        end
+
+        local newHash = tostring(newDoor.doorHash)
+        for _, d in ipairs(doors) do
+            if tostring(d.doorHash) == newHash then
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = "This door is already attached to this house.",
+                    type = "error"
+                })
+                return
+            end
+        end
+
+        table.insert(doors, {
+            doorHash = newHash,
+            modelHash = tostring(newDoor.modelHash or newDoor.model or ""),
+            modelName = tostring(newDoor.modelName or ""),
+            x = tonumber(newDoor.x) or 0.0,
+            y = tonumber(newDoor.y) or 0.0,
+            z = tonumber(newDoor.z) or 0.0,
+            heading = tonumber(newDoor.heading) or 0.0
+        })
+
+        local doorsJson = json.encode(doors)
+        MySQL.query("UPDATE houses SET doors = ? WHERE id = ?", { doorsJson, houseId }, function()
+            print(("^2[coi_hm]^7 Attached door #%s to House #%s."):format(newHash, houseId))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Door #%s attached to House #%s!"):format(newHash, houseId),
+                type = "success"
+            })
+            FetchAndSendHouses(-1)
+        end)
+    end)
+end)
+
+-- Remove Door from House Event
+RegisterNetEvent("coi_hm:removeDoorFromHouse", function(data)
+    local src = source
+    if not data or not data.houseId or not data.doorHash then return end
+    local houseId = tonumber(data.houseId)
+    local removeHash = tostring(data.doorHash)
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = result[1]
+        local doors = {}
+        if house.doors and house.doors ~= "" then
+            local ok, parsed = pcall(json.decode, house.doors)
+            if ok and type(parsed) == "table" then doors = parsed end
+        end
+
+        local updatedDoors = {}
+        for _, d in ipairs(doors) do
+            if tostring(d.doorHash) ~= removeHash then
+                table.insert(updatedDoors, d)
+            end
+        end
+
+        if #updatedDoors == 0 then
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "Cannot remove the last remaining door of a house.",
+                type = "error"
+            })
+            return
+        end
+
+        local doorsJson = json.encode(updatedDoors)
+        local mainDoor = updatedDoors[1]
+        MySQL.query([[
+            UPDATE houses
+            SET doors = ?, doorHash = ?, modelHash = ?, modelName = ?
+            WHERE id = ?
+        ]], {
+            doorsJson, mainDoor.doorHash, mainDoor.modelHash, mainDoor.modelName, houseId
+        }, function()
+            print(("^2[coi_hm]^7 Detached door #%s from House #%s."):format(removeHash, houseId))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Door detached from House #%s!"):format(houseId),
+                type = "info"
             })
             FetchAndSendHouses(-1)
         end)

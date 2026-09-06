@@ -106,6 +106,16 @@ RegisterNUICallback("updateHouse", function(data, cb)
     cb("ok")
 end)
 
+RegisterNUICallback("addDoorToHouse", function(data, cb)
+    TriggerServerEvent("coi_hm:addDoorToHouse", data)
+    cb("ok")
+end)
+
+RegisterNUICallback("removeDoorFromHouse", function(data, cb)
+    TriggerServerEvent("coi_hm:removeDoorFromHouse", data)
+    cb("ok")
+end)
+
 RegisterNUICallback("close", function(_,cb)
     ui=false
     SetNuiFocus(false,false)
@@ -343,10 +353,15 @@ end
 
 function ApplyAllDoorLocks()
     for _, house in ipairs(LoadedHouses) do
-        local doorHash = ToPrimitiveNumber(house.doorHash)
         local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
-        if doorHash and doorHash ~= 0 then
-            SetDoorLockState(doorHash, isLocked)
+        local doors = (type(house.doors) == "table" and #house.doors > 0) and house.doors or {
+            { doorHash = house.doorHash }
+        }
+        for _, d in ipairs(doors) do
+            local doorHash = ToPrimitiveNumber(d.doorHash)
+            if doorHash and doorHash ~= 0 then
+                SetDoorLockState(doorHash, isLocked)
+            end
         end
     end
 end
@@ -372,7 +387,7 @@ CreateThread(function()
     TriggerServerEvent("coi_hm:requestHouses")
 end)
 
--- Proximity loop to maintain physical door locks & show owner contact prompt
+-- Proximity loop to maintain physical door locks & show owner / buyer prompts
 CreateThread(function()
     while true do
         local sleep = 1000
@@ -381,58 +396,63 @@ CreateThread(function()
             local coords = GetEntityCoords(ped)
 
             for _, house in ipairs(LoadedHouses) do
-                local hx = tonumber(house.x)
-                local hy = tonumber(house.y)
-                local hz = tonumber(house.z)
-                local doorHash = ToPrimitiveNumber(house.doorHash)
+                local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
+                local isForSale = (house.owner == "For Sale" or house.status == "available")
+                local isOwner = IsPlayerHouseOwner(house)
+                local price = tonumber(house.price) or 500
 
-                if hx and hy and hz then
-                    local dist = #(coords - vector3(hx, hy, hz))
+                local doors = (type(house.doors) == "table" and #house.doors > 0) and house.doors or {
+                    { doorHash = house.doorHash, x = house.x, y = house.y, z = house.z }
+                }
 
-                    if dist <= 25.0 then
-                        sleep = 0
-                        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
+                for _, door in ipairs(doors) do
+                    local dx = tonumber(door.x)
+                    local dy = tonumber(door.y)
+                    local dz = tonumber(door.z)
+                    local doorHash = ToPrimitiveNumber(door.doorHash)
 
-                        -- Continuously enforce physical door state in game engine
-                        if doorHash and doorHash ~= 0 then
-                            SetDoorLockState(doorHash, isLocked)
-                        end
+                    if dx and dy and dz then
+                        local dist = #(coords - vector3(dx, dy, dz))
 
-                        -- Check house ownership & state
-                        local isForSale = (house.owner == "For Sale" or house.status == "available")
-                        local isOwner = IsPlayerHouseOwner(house)
-                        local price = tonumber(house.price) or 500
+                        if dist <= 25.0 then
+                            sleep = 0
 
-                        if isForSale then
-                            -- Show 3D For Sale Prompt when near door (within 5.0m)
-                            if dist <= 5.0 then
-                                local text = "~g~HOUSE FOR SALE~s~\nPrice: ~g~$" .. tostring(price) .. "~s~\nPress ~e~[E]~s~ to Purchase"
-                                DrawText3D(hx, hy, hz + 0.15, text)
-
-                                if dist <= 2.5 and IsControlJustPressed(0, 0xCEFD9220) then
-                                    TriggerServerEvent("coi_hm:buyHouse", house.id)
-                                    Wait(1000)
-                                end
+                            -- Continuously enforce physical door state in game engine
+                            if doorHash and doorHash ~= 0 then
+                                SetDoorLockState(doorHash, isLocked)
                             end
-                        elseif isOwner then
-                            -- House Owner / Admin: Show 3D Lock/Unlock Toggle Prompt (within 5.0m)
-                            if dist <= 5.0 then
-                                local lockStatusStr = isLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
-                                local actionStr = isLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
-                                local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
-                                DrawText3D(hx, hy, hz + 0.15, text)
 
-                                if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
-                                    TriggerServerEvent("coi_hm:toggleDoorLock", house.id)
-                                    Wait(1000)
+                            if isForSale then
+                                -- Show 3D For Sale Prompt when near door (within 5.0m)
+                                if dist <= 5.0 then
+                                    local text = "~g~HOUSE FOR SALE~s~\nPrice: ~g~$" .. tostring(price) .. "~s~\nPress ~e~[E]~s~ to Purchase"
+                                    DrawText3D(dx, dy, dz + 0.15, text)
+
+                                    if dist <= 2.5 and IsControlJustPressed(0, 0xCEFD9220) then
+                                        TriggerServerEvent("coi_hm:buyHouse", house.id)
+                                        Wait(1000)
+                                    end
                                 end
-                            end
-                        else
-                            -- Non-owner: Show 3D text prompt when near locked owned house (within 5.0m)
-                            if dist <= 5.0 and isLocked then
-                                local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
-                                local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
-                                DrawText3D(hx, hy, hz + 0.15, text)
+                            elseif isOwner then
+                                -- House Owner / Admin: Show 3D Lock/Unlock Toggle Prompt (within 5.0m)
+                                if dist <= 5.0 then
+                                    local lockStatusStr = isLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
+                                    local actionStr = isLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
+                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
+                                    DrawText3D(dx, dy, dz + 0.15, text)
+
+                                    if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
+                                        TriggerServerEvent("coi_hm:toggleDoorLock", house.id)
+                                        Wait(1000)
+                                    end
+                                end
+                            else
+                                -- Non-owner: Show 3D text prompt when near locked owned house (within 5.0m)
+                                if dist <= 5.0 and isLocked then
+                                    local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
+                                    local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
+                                    DrawText3D(dx, dy, dz + 0.15, text)
+                                end
                             end
                         end
                     end
