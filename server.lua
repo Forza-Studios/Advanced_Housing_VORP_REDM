@@ -662,6 +662,25 @@ RegisterNetEvent("coi_hm:setStashCoords", function(data)
     end)
 end)
 
+-- Remove House Stash Coordinates Event
+RegisterNetEvent("coi_hm:removeStashCoords", function(data)
+    local src = source
+    if not data or not data.houseId then return end
+    local houseId = tonumber(data.houseId)
+
+    MySQL.query("UPDATE houses SET stashX = NULL, stashY = NULL, stashZ = NULL WHERE id = ?", {
+        houseId
+    }, function()
+        print(("^2[coi_hm]^7 Removed stash position for House #%s."):format(houseId))
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = ("Stash location removed for House #%s!"):format(houseId),
+            type = "info"
+        })
+        FetchAndSendHouses(-1)
+    end)
+end)
+
 -- Open House Stash Event (vorp_inventory integration - Owner Only)
 RegisterNetEvent("coi_hm:openStash", function(houseId)
     local src = source

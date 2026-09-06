@@ -133,6 +133,15 @@ RegisterNUICallback("setStashAtCurrentPos", function(data, cb)
     cb("ok")
 end)
 
+RegisterNUICallback("removeStash", function(data, cb)
+    if data and data.houseId then
+        TriggerServerEvent("coi_hm:removeStashCoords", {
+            houseId = data.houseId
+        })
+    end
+    cb("ok")
+end)
+
 RegisterNUICallback("close", function(_,cb)
     ui=false
     SetNuiFocus(false,false)

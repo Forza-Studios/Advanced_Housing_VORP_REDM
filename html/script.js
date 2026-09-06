@@ -263,17 +263,15 @@ function attachEvents() {
     });
 
 
-    // Delete House
+    // Delete House Confirmation
     document.querySelectorAll(".action-btn.delete").forEach(btn => {
         btn.addEventListener("click", () => {
             const houseId = btn.getAttribute("data-id");
             if (houseId) {
-                try {
-                    fetch(`https://${GetParentResourceName()}/deleteHouse`, {
-                        method: "POST",
-                        body: JSON.stringify({ id: houseId })
-                    });
-                } catch (e) {}
+                const targetHouse = houseData.find(h => String(h.id) === String(houseId));
+                if (targetHouse) {
+                    openDeleteConfirmationModal(targetHouse);
+                }
             }
         });
     });
@@ -789,7 +787,10 @@ function openEditHouseModal(house) {
                         </div>
                         <div>
                             <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Stash Location</label>
-                            <button type="button" class="btn-secondary" id="setStashPosBtn" style="width: 100%; font-size: 11px; padding: 7px 8px; justify-content: center;" title="Set Stash at My Position">📍 Set Stash at My Position</button>
+                            <div style="display: flex; gap: 6px;">
+                                <button type="button" class="btn-secondary" id="setStashPosBtn" style="flex: 1; font-size: 11px; padding: 7px 6px; justify-content: center;" title="Set Stash at My Position">📍 Set Pos</button>
+                                ${house.stashX ? `<button type="button" class="action-btn delete" id="removeStashPosBtn" style="width: 32px; height: 32px; flex-shrink: 0;" title="Remove / Clear Stash Location">🗑️</button>` : ''}
+                            </div>
                         </div>
                     </div>
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
@@ -839,6 +840,18 @@ function openEditHouseModal(house) {
             } catch (e) {}
         });
     }
+    const removeStashPosBtn = document.getElementById("removeStashPosBtn");
+    if (removeStashPosBtn) {
+        removeStashPosBtn.addEventListener("click", () => {
+            try {
+                fetch(`https://${GetParentResourceName()}/removeStash`, {
+                    method: "POST",
+                    body: JSON.stringify({ houseId: house.id })
+                });
+            } catch (e) {}
+            closeEditModal();
+        });
+    }
     document.getElementById("confirmEditHouseBtn").addEventListener("click", () => {
         const name = document.getElementById("editHouseName").value.trim();
         const location = document.getElementById("editHouseLocation").value;
@@ -869,6 +882,66 @@ function openEditHouseModal(house) {
         } catch(e) {}
 
         closeEditModal();
+    });
+}
+
+// ===== Delete House Confirmation Modal =====
+function openDeleteConfirmationModal(house) {
+    const existing = document.getElementById("deleteConfirmModal");
+    if (existing) existing.remove();
+
+    const modal = document.createElement("div");
+    modal.id = "deleteConfirmModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-panel" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid rgba(220, 80, 80, 0.2);">
+                <h2 style="color: #e06c6c; display: flex; align-items: center; gap: 8px;">⚠️ Delete House #${house.id}</h2>
+                <button class="modal-close-btn" id="deleteModalCloseBtn">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <div style="background: rgba(180, 50, 50, 0.12); border: 1px solid rgba(220, 80, 80, 0.25); border-radius: 10px; padding: 14px; color: #f0aaaa; font-size: 13px; line-height: 1.4;">
+                        <strong>Are you sure you want to delete this house?</strong>
+                        <div style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">
+                            This action is permanent. It will delete <strong>${escapeHtml(house.name)}</strong> and all attached door locks & stash settings from the database.
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <div><strong>House Name:</strong> ${escapeHtml(house.name)}</div>
+                        <div><strong>Location:</strong> ${escapeHtml(house.location || 'N/A')}</div>
+                        <div><strong>Owner:</strong> ${escapeHtml(house.owner || 'Unowned')}</div>
+                        <div><strong>Attached Doors:</strong> ${(house.doors || []).length || 1} door(s)</div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+                        <button class="btn-secondary" id="deleteModalCancelBtn">Cancel</button>
+                        <button class="btn-primary" id="confirmDeleteHouseBtn" style="background: linear-gradient(135deg, #c04848, #8a2e2e); color: #fff; box-shadow: 0 2px 12px rgba(192, 72, 72, 0.3);">🗑️ Yes, Delete House</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add("active"));
+
+    const closeDeleteModal = () => {
+        modal.classList.add("closing");
+        setTimeout(() => modal.remove(), 250);
+    };
+
+    document.getElementById("deleteModalCloseBtn").addEventListener("click", closeDeleteModal);
+    document.getElementById("deleteModalCancelBtn").addEventListener("click", closeDeleteModal);
+    document.getElementById("confirmDeleteHouseBtn").addEventListener("click", () => {
+        try {
+            fetch(`https://${GetParentResourceName()}/deleteHouse`, {
+                method: "POST",
+                body: JSON.stringify({ id: house.id })
+            });
+        } catch (e) {}
+        closeDeleteModal();
     });
 }
 
