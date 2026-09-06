@@ -142,7 +142,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                                 <div class="house-thumb">🏠</div>
                                 <div>
                                     <span class="house-name-text">${h.name}</span>
-                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 ${(h.doors || []).length || 1} door${((h.doors || []).length || 1) !== 1 ? 's' : ''}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 ${(h.doors || []).length || 1} door${((h.doors || []).length || 1) !== 1 ? 's' : ''} | 📦 Stash: ${h.stashX ? (h.stashLimit || 100) + 'kg' : 'Not Set'}</div>
                                 </div>
                             </div>
                         </td>
@@ -158,6 +158,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                         <td>
                             <div class="action-btns">
                                 <button class="action-btn doors" title="Manage Doors (${(h.doors || []).length || 1})" data-id="${h.id}">🚪</button>
+                                <button class="action-btn stash" title="📍 Set Stash at My Position" data-id="${h.id}">📦</button>
                                 <button class="action-btn edit" title="Edit" data-id="${h.id}">✏️</button>
                                 <button class="action-btn delete" title="Delete" data-id="${h.id}">🗑️</button>
                             </div>
@@ -258,6 +259,21 @@ function attachEvents() {
                 if (targetHouse) {
                     openManageDoorsModal(targetHouse);
                 }
+            }
+        });
+    });
+
+    // Set Stash Position
+    document.querySelectorAll(".action-btn.stash").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const houseId = btn.getAttribute("data-id");
+            if (houseId) {
+                try {
+                    fetch(`https://${GetParentResourceName()}/setStashAtCurrentPos`, {
+                        method: "POST",
+                        body: JSON.stringify({ houseId: houseId })
+                    });
+                } catch (e) {}
             }
         });
     });
@@ -628,12 +644,18 @@ function openSaveHouseModal(door) {
                             <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
                         </div>
                     </div>
-                    <div>
-                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Initial Owner / Status</label>
-                        <select id="saveHouseOwnerMode" class="scan-radius-select" style="width: 100%; font-size: 13px;">
-                            <option value="forsale">🏷️ For Sale (Public Purchase Prompt)</option>
-                            <option value="creator">👤 You (Creator / Character Owner)</option>
-                        </select>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Initial Owner / Status</label>
+                            <select id="saveHouseOwnerMode" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                                <option value="forsale">🏷️ For Sale (Public Purchase Prompt)</option>
+                                <option value="creator">👤 You (Creator / Character Owner)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Stash Capacity (kg)</label>
+                            <input type="number" id="saveHouseStashLimit" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="100" min="1" step="10" />
+                        </div>
                     </div>
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
                         <div style="color: var(--accent); font-weight: 700;">Selected Door Settings</div>
@@ -681,6 +703,7 @@ function openSaveHouseModal(door) {
             owner: ownerVal,
             status: (ownerMode === "forsale") ? "available" : "owned",
             locked: 1, // Default locked = true (1)
+            stashLimit: parseFloat(document.getElementById("saveHouseStashLimit").value) || 100,
             doorHash: door.doorHash,
             modelHash: door.model,
             modelName: door.modelName,
@@ -774,11 +797,24 @@ function openEditHouseModal(house) {
                             <input type="text" id="editHouseBlipLabel" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(defaultBlipLabel)}" />
                         </div>
                     </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Stash Capacity (kg)</label>
+                            <input type="number" id="editHouseStashLimit" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.stashLimit || 100}" min="1" step="10" />
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Stash Location</label>
+                            <button type="button" class="btn-secondary" id="setStashPosBtn" style="width: 100%; font-size: 11px; padding: 7px 8px; justify-content: center;" title="Set Stash at My Position">📍 Set Stash at My Position</button>
+                        </div>
+                    </div>
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
-                        <div style="color: var(--accent); font-weight: 700;">Door Properties</div>
+                        <div style="color: var(--accent); font-weight: 700;">Door & Stash Properties</div>
                         <div><strong>Door Hash:</strong> ${house.doorHash || 'N/A'}</div>
                         <div><strong>Model Name:</strong> ${house.modelName || 'Unknown'}</div>
                         <div><strong>Position:</strong> ${house.x}, ${house.y}, ${house.z}</div>
+                        <div style="margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle); color: var(--text-muted);">
+                            <strong>Stash Location:</strong> ${house.stashX ? `(${Number(house.stashX).toFixed(2)}, ${Number(house.stashY).toFixed(2)}, ${Number(house.stashZ).toFixed(2)})` : 'Not Set (Stand in house & click button above)'}
+                        </div>
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                         <button class="btn-secondary" id="editModalCancelBtn">Cancel</button>
@@ -807,6 +843,17 @@ function openEditHouseModal(house) {
             document.getElementById("editHouseBlipLabel").value = `House For Sale ($${price})`;
         });
     }
+    const setStashPosBtn = document.getElementById("setStashPosBtn");
+    if (setStashPosBtn) {
+        setStashPosBtn.addEventListener("click", () => {
+            try {
+                fetch(`https://${GetParentResourceName()}/setStashAtCurrentPos`, {
+                    method: "POST",
+                    body: JSON.stringify({ houseId: house.id })
+                });
+            } catch (e) {}
+        });
+    }
     document.getElementById("confirmEditHouseBtn").addEventListener("click", () => {
         const name = document.getElementById("editHouseName").value.trim();
         const location = document.getElementById("editHouseLocation").value;
@@ -815,6 +862,7 @@ function openEditHouseModal(house) {
         const locked = parseInt(document.getElementById("editHouseLocked").value);
         const blipSprite = parseInt(document.getElementById("editHouseBlipSprite").value) || 1586273744;
         const blipLabel = document.getElementById("editHouseBlipLabel").value.trim();
+        const stashLimit = parseFloat(document.getElementById("editHouseStashLimit").value) || 100;
 
         const payload = {
             id: house.id,
@@ -824,7 +872,8 @@ function openEditHouseModal(house) {
             owner: owner,
             locked: locked,
             blipSprite: blipSprite,
-            blipLabel: blipLabel
+            blipLabel: blipLabel,
+            stashLimit: stashLimit
         };
 
         try {

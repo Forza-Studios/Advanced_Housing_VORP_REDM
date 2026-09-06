@@ -116,6 +116,20 @@ RegisterNUICallback("removeDoorFromHouse", function(data, cb)
     cb("ok")
 end)
 
+RegisterNUICallback("setStashAtCurrentPos", function(data, cb)
+    local ped = PlayerPedId()
+    local coords = GetEntityCoords(ped)
+    if data and data.houseId then
+        TriggerServerEvent("coi_hm:setStashCoords", {
+            houseId = data.houseId,
+            x = string.format("%.3f", coords.x),
+            y = string.format("%.3f", coords.y),
+            z = string.format("%.3f", coords.z)
+        })
+    end
+    cb("ok")
+end)
+
 RegisterNUICallback("close", function(_,cb)
     ui=false
     SetNuiFocus(false,false)
@@ -454,6 +468,25 @@ CreateThread(function()
                                     DrawText3D(dx, dy, dz + 0.15, text)
                                 end
                             end
+                        end
+                    end
+                end
+
+                -- Check House Stash Location Interaction ([F] key)
+                local sx = tonumber(house.stashX)
+                local sy = tonumber(house.stashY)
+                local sz = tonumber(house.stashZ)
+                if sx and sy and sz then
+                    local sDist = #(coords - vector3(sx, sy, sz))
+                    if sDist <= 2.5 then
+                        sleep = 0
+                        local limit = tonumber(house.stashLimit) or 100
+                        local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[F]~s~ to Open Storage"
+                        DrawText3D(sx, sy, sz + 0.15, text)
+
+                        if sDist <= 2.0 and IsControlJustPressed(0, 0xB2F377E8) then -- F key (INPUT_INTERACT_OPTION2)
+                            TriggerServerEvent("coi_hm:openStash", house.id)
+                            Wait(1000)
                         end
                     end
                 end

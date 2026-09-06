@@ -78,12 +78,16 @@ CreateThread(function()
             `blipSprite` BIGINT DEFAULT 1586273744,
             `blipLabel` VARCHAR(128) DEFAULT NULL,
             `doors` LONGTEXT DEFAULT NULL,
+            `stashX` FLOAT DEFAULT NULL,
+            `stashY` FLOAT DEFAULT NULL,
+            `stashZ` FLOAT DEFAULT NULL,
+            `stashLimit` INT DEFAULT 100,
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]], {}, function(result)
         print("^2[coi_hm]^7 SQL table `houses` initialized successfully.")
-        -- Migration check for existing table without locked, blipSprite, blipLabel, doors columns
+        -- Migration check for existing table without locked, blipSprite, blipLabel, doors, stash columns
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `locked` TINYINT(1) DEFAULT 1;
         ]], {}, function() end)
@@ -95,6 +99,18 @@ CreateThread(function()
         ]], {}, function() end)
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `doors` LONGTEXT DEFAULT NULL;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashX` FLOAT DEFAULT NULL;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashY` FLOAT DEFAULT NULL;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashZ` FLOAT DEFAULT NULL;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashLimit` INT DEFAULT 100;
         ]], {}, function()
             -- Auto-migrate existing single-door records to doors JSON array
             MySQL.query("SELECT id, doorHash, modelHash, modelName, x, y, z, heading, doors FROM houses", {}, function(rows)
@@ -218,6 +234,7 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local blipSprite = tonumber(data.blipSprite) or 1586273744
     local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or (owner .. "'s House")
     local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
+    local stashLimit = tonumber(data.stashLimit) or 100
 
     local initDoors = {
         {
@@ -233,16 +250,16 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local doorsJson = json.encode(initDoors)
 
     MySQL.insert([[
-        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doors)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doors, stashLimit)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doorsJson
+        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading, blipSprite, blipLabel, doorsJson, stashLimit
     }, function(insertId)
         if insertId then
-            print(("^2[coi_hm]^7 Created new house #%s (Owner: '%s', Status: '%s', Price: $%s)."):format(insertId, owner, status, price))
+            print(("^2[coi_hm]^7 Created new house #%s (Owner: '%s', Status: '%s', Price: $%s, Stash: %skg)."):format(insertId, owner, status, price, stashLimit))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("House saved! Owner: %s (Status: %s)"):format(owner, status),
+                description = ("House saved! Owner: %s (Stash: %skg)"):format(owner, stashLimit),
                 type = "success"
             })
             FetchAndSendHouses(-1)
@@ -283,15 +300,16 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
     local blipSprite = tonumber(data.blipSprite) or 1586273744
     local defaultLabel = isForSale and ("House For Sale ($" .. price .. ")") or ((owner ~= "Unowned" and owner ~= "") and (owner .. "'s House") or "House")
     local blipLabel = (data.blipLabel and data.blipLabel ~= "") and data.blipLabel or defaultLabel
+    local stashLimit = tonumber(data.stashLimit) or 100
 
     MySQL.query([[
         UPDATE houses
-        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?
+        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?, blipSprite = ?, blipLabel = ?, stashLimit = ?
         WHERE id = ?
     ]], {
-        name, location, price, owner, status, locked, blipSprite, blipLabel, houseId
+        name, location, price, owner, status, locked, blipSprite, blipLabel, stashLimit, houseId
     }, function(result)
-        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Status: %s)."):format(houseId, owner, status))
+        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Status: %s, StashLimit: %skg)."):format(houseId, owner, status, stashLimit))
         TriggerClientEvent("ox_lib:notify", src, {
             title = "Housing Manager",
             description = ("House #%s updated successfully!"):format(houseId),
@@ -521,5 +539,87 @@ RegisterNetEvent("coi_hm:removeDoorFromHouse", function(data)
             })
             FetchAndSendHouses(-1)
         end)
+    end)
+end)
+
+-- Set House Stash Coordinates Event
+RegisterNetEvent("coi_hm:setStashCoords", function(data)
+    local src = source
+    if not data or not data.houseId then return end
+    local houseId = tonumber(data.houseId)
+    local x = tonumber(data.x)
+    local y = tonumber(data.y)
+    local z = tonumber(data.z)
+    if not x or not y or not z then return end
+
+    MySQL.query("UPDATE houses SET stashX = ?, stashY = ?, stashZ = ? WHERE id = ?", {
+        x, y, z, houseId
+    }, function()
+        print(("^2[coi_hm]^7 Updated stash position for House #%s to (%s, %s, %s)."):format(houseId, x, y, z))
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = ("Stash position set for House #%s!"):format(houseId),
+            type = "success"
+        })
+        FetchAndSendHouses(-1)
+    end)
+end)
+
+-- Open House Stash Event (vorp_inventory integration)
+RegisterNetEvent("coi_hm:openStash", function(houseId)
+    local src = source
+    houseId = tonumber(houseId)
+    if not houseId then return end
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = result[1]
+        local myInfo = GetPlayerOwnerInfo(src)
+
+        local isOwner = false
+        if house.owner and myInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.name)) then
+            isOwner = true
+        elseif house.owner and myInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.steam)) then
+            isOwner = true
+        elseif myInfo.isAdmin then
+            isOwner = true
+        end
+
+        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1")
+        if isLocked and not isOwner then
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "This house is locked.",
+                type = "error"
+            })
+            return
+        end
+
+        local inventoryId = "house_stash_" .. tostring(houseId)
+        local stashLimit = tonumber(house.stashLimit) or 100
+
+        if GetResourceState("vorp_inventory") == "started" and exports.vorp_inventory then
+            if not exports.vorp_inventory:isCustomInventoryRegistered(inventoryId) then
+                exports.vorp_inventory:registerInventory({
+                    id = inventoryId,
+                    name = (house.name or ("House #" .. houseId)) .. " Storage",
+                    limit = stashLimit,
+                    acceptWeapons = true,
+                    shared = true,
+                    ignoreItemStackLimit = true,
+                    whitelistItems = false,
+                    UsePermissions = false,
+                    UseBlackList = false,
+                    whitelistWeapons = false
+                })
+            end
+            exports.vorp_inventory:openInventory(src, inventoryId)
+        else
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "vorp_inventory is not running.",
+                type = "error"
+            })
+        end
     end)
 end)
