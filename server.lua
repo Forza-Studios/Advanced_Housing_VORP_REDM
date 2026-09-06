@@ -515,13 +515,16 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
             end
         end
 
-        -- Update DB: Transfer ownership to buyer's charIdentifier and reset partners
+        local buyerName = (myInfo.name and myInfo.name ~= "") and myInfo.name or ("Char #" .. tostring(buyerCharId))
+        local newBlipLabel = buyerName .. "'s House"
+
+        -- Update DB: Transfer ownership to buyer's charIdentifier, set status owned, update blipLabel, reset partners
         MySQL.query([[
             UPDATE houses
-            SET owner_charid = ?, status = 'owned', locked = 1
+            SET owner_charid = ?, status = 'owned', locked = 1, blipLabel = ?
             WHERE id = ?
         ]], {
-            buyerCharId, houseId
+            buyerCharId, newBlipLabel, houseId
         }, function()
             MySQL.query("DELETE FROM house_partners WHERE house_id = ?", { houseId }, function()
                 print(("^2[coi_hm]^7 Character '%s' (Src: %s) bought house #%s ('%s') for $%s."):format(buyerCharId, src, houseId, house.name, price))

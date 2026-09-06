@@ -33,9 +33,15 @@ local function RefreshHouseBlips()
         local hz = tonumber(house.z)
         if hx and hy and hz then
             local sprite = tonumber(house.blipSprite) or 1586273744
-            local ownerName = (house.owner and house.owner ~= "" and house.owner ~= "Unowned") and house.owner or nil
-            local defaultLabel = ownerName and (ownerName .. "'s House") or "House"
-            local label = (house.blipLabel and house.blipLabel ~= "") and house.blipLabel or defaultLabel
+            local isForSale = (house.status == "available" or house.owner == "For Sale" or not house.owner_charid or house.owner_charid == "")
+            local ownerName = (house.owner and house.owner ~= "" and house.owner ~= "For Sale" and house.owner ~= "Unowned") and house.owner or nil
+
+            local label = house.blipLabel
+            if isForSale then
+                label = "House For Sale ($" .. (house.price or 500) .. ")"
+            elseif not label or label == "" or string.find(string.lower(tostring(label)), "for sale") then
+                label = ownerName and (ownerName .. "'s House") or "House"
+            end
 
             -- Create RedM map blip at house coordinates
             local blip = Citizen.InvokeNative(0x554D9D53F696D002, 1664425300, hx, hy, hz)
@@ -468,7 +474,7 @@ CreateThread(function()
 
             for _, house in ipairs(LoadedHouses) do
                 local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
-                local isForSale = (house.owner == "For Sale" or house.status == "available")
+                local isForSale = (house.status == "available" or house.owner == "For Sale" or not house.owner_charid or house.owner_charid == "")
                 local isOwner = IsPlayerHouseOwner(house)
                 local isPartner = IsPlayerHousePartner(house)
                 local isOwnerOrPartner = isOwner or isPartner
