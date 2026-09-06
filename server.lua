@@ -162,6 +162,7 @@ end)
 -- Helper to format house doors array for client sync
 local function FormatHouseForClient(h)
     local doors = {}
+    local houseLocked = (h.locked == 1 or h.locked == true or h.locked == "1") and 1 or 0
     if h.doors and h.doors ~= "" then
         if type(h.doors) == "string" then
             local ok, parsed = pcall(json.decode, h.doors)
@@ -172,6 +173,13 @@ local function FormatHouseForClient(h)
             doors = h.doors
         end
     end
+    for _, d in ipairs(doors) do
+        if d.locked == nil then
+            d.locked = houseLocked
+        else
+            d.locked = (d.locked == 1 or d.locked == true or d.locked == "1") and 1 or 0
+        end
+    end
     if #doors == 0 then
         table.insert(doors, {
             doorHash = tostring(h.doorHash),
@@ -180,7 +188,8 @@ local function FormatHouseForClient(h)
             x = tonumber(h.x) or 0.0,
             y = tonumber(h.y) or 0.0,
             z = tonumber(h.z) or 0.0,
-            heading = tonumber(h.heading) or 0.0
+            heading = tonumber(h.heading) or 0.0,
+            locked = houseLocked
         })
     end
     h.doors = doors
@@ -411,10 +420,19 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
     end)
 end)
 
--- Owner / Admin Toggle Door Lock Event
-RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
+-- Owner Toggle Door Lock Event (Single Door or All Doors)
+RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
     local src = source
-    houseId = tonumber(houseId)
+    local houseId = nil
+    local targetDoorHash = nil
+
+    if type(data) == "table" then
+        houseId = tonumber(data.houseId)
+        targetDoorHash = data.doorHash and tostring(data.doorHash) or nil
+    else
+        houseId = tonumber(data)
+    end
+
     if not houseId then return end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
@@ -423,10 +441,15 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
         local myInfo = GetPlayerOwnerInfo(src)
 
         local isOwner = false
-        if house.owner and myInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.name)) then
-            isOwner = true
-        elseif house.owner and myInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(myInfo.steam)) then
-            isOwner = true
+        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+            local ownerLower = string.lower(tostring(house.owner))
+            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+                isOwner = true
+            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+                isOwner = true
+            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+                isOwner = true
+            end
         end
 
         if not isOwner then
@@ -438,15 +461,63 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(houseId)
             return
         end
 
-        local newLocked = (house.locked == 1 or house.locked == true or house.locked == "1") and 0 or 1
+        local doors = {}
+        if house.doors and house.doors ~= "" then
+            local ok, parsed = pcall(json.decode, house.doors)
+            if ok and type(parsed) == "table" then doors = parsed end
+        end
 
-        MySQL.query("UPDATE houses SET locked = ? WHERE id = ?", { newLocked, houseId }, function()
-            local statusStr = (newLocked == 1) and "Locked" or "Unlocked"
-            print(("^2[coi_hm]^7 Owner/Admin '%s' toggled house #%s lock state to %s."):format(myInfo.name, houseId, statusStr))
+        local houseLocked = (house.locked == 1 or house.locked == true or house.locked == "1") and 1 or 0
+
+        if #doors == 0 then
+            table.insert(doors, {
+                doorHash = tostring(house.doorHash),
+                modelHash = tostring(house.modelHash or ""),
+                modelName = tostring(house.modelName or ""),
+                x = tonumber(house.x) or 0.0,
+                y = tonumber(house.y) or 0.0,
+                z = tonumber(house.z) or 0.0,
+                heading = tonumber(house.heading) or 0.0,
+                locked = houseLocked
+            })
+        end
+
+        local newDoorStatusStr = ""
+
+        if targetDoorHash then
+            local found = false
+            for _, d in ipairs(doors) do
+                if tostring(d.doorHash) == targetDoorHash then
+                    found = true
+                    local currentLock = (d.locked ~= nil) and ((d.locked == 1 or d.locked == true or d.locked == "1") and 1 or 0) or houseLocked
+                    d.locked = (currentLock == 1) and 0 or 1
+                    newDoorStatusStr = (d.locked == 1) and "Locked" or "Unlocked"
+                    break
+                end
+            end
+
+            if not found then
+                doors[1].locked = (houseLocked == 1) and 0 or 1
+                newDoorStatusStr = (doors[1].locked == 1) and "Locked" or "Unlocked"
+            end
+        else
+            local newLockState = (houseLocked == 1) and 0 or 1
+            houseLocked = newLockState
+            for _, d in ipairs(doors) do
+                d.locked = newLockState
+            end
+            newDoorStatusStr = (newLockState == 1) and "Locked" or "Unlocked"
+        end
+
+        local mainDoorLocked = (doors[1] and doors[1].locked ~= nil) and doors[1].locked or houseLocked
+        local doorsJson = json.encode(doors)
+
+        MySQL.query("UPDATE houses SET locked = ?, doors = ? WHERE id = ?", { mainDoorLocked, doorsJson, houseId }, function()
+            print(("^2[coi_hm]^7 Owner '%s' toggled door #%s lock state on house #%s to %s."):format(myInfo.name, targetDoorHash or "all", houseId, newDoorStatusStr))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = ("Door %s!"):format(statusStr),
-                type = (newLocked == 1) and "error" or "success"
+                description = ("Door %s!"):format(newDoorStatusStr),
+                type = (newDoorStatusStr == "Locked") and "error" or "success"
             })
             FetchAndSendHouses(-1)
         end)

@@ -368,16 +368,24 @@ local function SetDoorLockState(hash, isLocked)
     end
 end
 
+local function IsDoorLocked(door, houseLocked)
+    if door and door.locked ~= nil then
+        return (door.locked == 1 or door.locked == true or door.locked == "1")
+    end
+    return (houseLocked == 1 or houseLocked == true or houseLocked == "1" or houseLocked == nil)
+end
+
 function ApplyAllDoorLocks()
     for _, house in ipairs(LoadedHouses) do
-        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
+        local houseLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
         local doors = (type(house.doors) == "table" and #house.doors > 0) and house.doors or {
-            { doorHash = house.doorHash }
+            { doorHash = house.doorHash, locked = houseLocked }
         }
         for _, d in ipairs(doors) do
             local doorHash = ToPrimitiveNumber(d.doorHash)
             if doorHash and doorHash ~= 0 then
-                SetDoorLockState(doorHash, isLocked)
+                local isDoorLocked = IsDoorLocked(d, houseLocked)
+                SetDoorLockState(doorHash, isDoorLocked)
             end
         end
     end
@@ -427,6 +435,7 @@ CreateThread(function()
                     local dy = tonumber(door.y)
                     local dz = tonumber(door.z)
                     local doorHash = ToPrimitiveNumber(door.doorHash)
+                    local isDoorLocked = IsDoorLocked(door, house.locked)
 
                     if dx and dy and dz then
                         local dist = #(coords - vector3(dx, dy, dz))
@@ -434,9 +443,9 @@ CreateThread(function()
                         if dist <= 25.0 then
                             sleep = 0
 
-                            -- Continuously enforce physical door state in game engine
+                            -- Continuously enforce physical door state in game engine per door
                             if doorHash and doorHash ~= 0 then
-                                SetDoorLockState(doorHash, isLocked)
+                                SetDoorLockState(doorHash, isDoorLocked)
                             end
 
                             if isForSale then
@@ -451,23 +460,23 @@ CreateThread(function()
                                     end
                                 end
                             elseif isOwner then
-                                -- House Owner / Admin: Show 3D Lock/Unlock Toggle Prompt (within 5.0m)
+                                -- House Owner: Show 3D Lock/Unlock Toggle Prompt for this specific door (within 5.0m)
                                 if dist <= 5.0 then
-                                    local lockStatusStr = isLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
-                                    local actionStr = isLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
+                                    local lockStatusStr = isDoorLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
+                                    local actionStr = isDoorLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
                                     local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
                                     DrawText3D(dx, dy, dz + 0.15, text)
 
                                     if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
-                                        TriggerServerEvent("coi_hm:toggleDoorLock", house.id)
+                                        TriggerServerEvent("coi_hm:toggleDoorLock", { houseId = house.id, doorHash = door.doorHash })
                                         Wait(1000)
                                     end
                                 end
                             else
-                                -- Non-owner: Show 3D text prompt when near locked owned house (within 5.0m)
-                                if dist <= 5.0 and isLocked then
+                                -- Non-owner: Show 3D text prompt when near locked door (within 5.0m)
+                                if dist <= 5.0 and isDoorLocked then
                                     local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
-                                    local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
+                                    local text = "~e~Door Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
                                     DrawText3D(dx, dy, dz + 0.15, text)
                                 end
                             end
@@ -475,7 +484,7 @@ CreateThread(function()
                     end
                 end
 
-                -- Check House Stash Location Interaction ([F] key - Owner / Admin Only)
+                -- Check House Stash Location Interaction ([G] key - Owner Only)
                 local sx = tonumber(house.stashX)
                 local sy = tonumber(house.stashY)
                 local sz = tonumber(house.stashZ)
@@ -485,10 +494,10 @@ CreateThread(function()
                         sleep = 0
                         if isOwner then
                             local limit = tonumber(house.stashLimit) or 100
-                            local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[F]~s~ to Open Storage"
+                            local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[G]~s~ to Open Storage"
                             DrawText3D(sx, sy, sz + 0.15, text)
 
-                            if sDist <= 2.0 and IsControlJustPressed(0, 0xB2F377E8) then -- F key (INPUT_INTERACT_OPTION2)
+                            if sDist <= 2.0 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
                                 TriggerServerEvent("coi_hm:openStash", house.id)
                                 Wait(1000)
                             end
