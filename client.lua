@@ -54,16 +54,46 @@ local function IsPlayerHouseOwner(house)
     if not house or not house.owner or house.owner == "" or house.owner == "Unowned" or house.owner == "For Sale" then
         return false
     end
-    if MyOwnerInfo.name and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.name)) then
+    local ownerLower = string.lower(tostring(house.owner))
+    if MyOwnerInfo.name and string.lower(tostring(MyOwnerInfo.name)) == ownerLower then
         return true
-    end
-    if MyOwnerInfo.steam and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.steam)) then
+    elseif MyOwnerInfo.steam and string.lower(tostring(MyOwnerInfo.steam)) == ownerLower then
         return true
-    end
-    if MyOwnerInfo.charIdentifier and string.lower(tostring(house.owner)) == string.lower(tostring(MyOwnerInfo.charIdentifier)) then
+    elseif MyOwnerInfo.charIdentifier and string.lower(tostring(MyOwnerInfo.charIdentifier)) == ownerLower then
         return true
     end
     return false
+end
+
+local function IsPlayerHousePartner(house)
+    if not house or not house.partners or type(house.partners) ~= "table" then
+        return false
+    end
+    for _, p in ipairs(house.partners) do
+        if type(p) == "table" then
+            if p.name and MyOwnerInfo.name and string.lower(tostring(p.name)) == string.lower(tostring(MyOwnerInfo.name)) then
+                return true
+            elseif p.steam and MyOwnerInfo.steam and string.lower(tostring(p.steam)) == string.lower(tostring(MyOwnerInfo.steam)) then
+                return true
+            elseif p.charIdentifier and MyOwnerInfo.charIdentifier and string.lower(tostring(p.charIdentifier)) == string.lower(tostring(MyOwnerInfo.charIdentifier)) then
+                return true
+            end
+        elseif type(p) == "string" then
+            local pLower = string.lower(p)
+            if MyOwnerInfo.name and string.lower(tostring(MyOwnerInfo.name)) == pLower then
+                return true
+            elseif MyOwnerInfo.steam and string.lower(tostring(MyOwnerInfo.steam)) == pLower then
+                return true
+            elseif MyOwnerInfo.charIdentifier and string.lower(tostring(MyOwnerInfo.charIdentifier)) == pLower then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function IsPlayerOwnerOrPartner(house)
+    return IsPlayerHouseOwner(house) or IsPlayerHousePartner(house)
 end
 
 RegisterNetEvent("coi_hm:setHouses", function(houses, myInfo)
@@ -145,6 +175,21 @@ end)
 RegisterNUICallback("close", function(_,cb)
     ui=false
     SetNuiFocus(false,false)
+    cb("ok")
+end)
+
+RegisterNUICallback("addPartner", function(data, cb)
+    TriggerServerEvent("coi_hm:addPartner", data)
+    cb("ok")
+end)
+
+RegisterNUICallback("removePartner", function(data, cb)
+    TriggerServerEvent("coi_hm:removePartner", data)
+    cb("ok")
+end)
+
+RegisterNUICallback("closePartnerModal", function(_, cb)
+    SetNuiFocus(false, false)
     cb("ok")
 end)
 
@@ -433,6 +478,8 @@ CreateThread(function()
                 local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
                 local isForSale = (house.owner == "For Sale" or house.status == "available")
                 local isOwner = IsPlayerHouseOwner(house)
+                local isPartner = IsPlayerHousePartner(house)
+                local isOwnerOrPartner = isOwner or isPartner
                 local price = tonumber(house.price) or 500
 
                 local doors = (type(house.doors) == "table" and #house.doors > 0) and house.doors or {
@@ -469,11 +516,27 @@ CreateThread(function()
                                     end
                                 end
                             elseif isOwner then
-                                -- House Owner: Show 3D Lock/Unlock Toggle Prompt for this specific door (within 5.0m)
+                                -- House Owner: Show 3D Lock/Unlock Toggle & Partner Management Prompts (within 5.0m)
                                 if dist <= 5.0 then
                                     local lockStatusStr = isDoorLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
                                     local actionStr = isDoorLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
-                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
+                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr .. "\nPress ~e~[J]~s~ to Manage Partners"
+                                    DrawText3D(dx, dy, dz + 0.15, text)
+
+                                    if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
+                                        TriggerServerEvent("coi_hm:toggleDoorLock", { houseId = house.id, doorHash = door.doorHash })
+                                        Wait(1000)
+                                    elseif dist <= 2.5 and IsControlJustPressed(0, 0xF3830D8E) then -- J key
+                                        TriggerServerEvent("coi_hm:requestManagePartners", { houseId = house.id })
+                                        Wait(1000)
+                                    end
+                                end
+                            elseif isPartner then
+                                -- House Partner: Show 3D Lock/Unlock Toggle Prompt (within 5.0m)
+                                if dist <= 5.0 then
+                                    local lockStatusStr = isDoorLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
+                                    local actionStr = isDoorLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
+                                    local text = "~g~PARTNER HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr
                                     DrawText3D(dx, dy, dz + 0.15, text)
 
                                     if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
@@ -493,7 +556,7 @@ CreateThread(function()
                     end
                 end
 
-                -- Check House Stash Location Interaction ([G] key - Owner Only)
+                -- Check House Stash Location Interaction ([G] key - Owner & Partner Access)
                 local sx = tonumber(house.stashX)
                 local sy = tonumber(house.stashY)
                 local sz = tonumber(house.stashZ)
@@ -501,7 +564,7 @@ CreateThread(function()
                     local sDist = #(coords - vector3(sx, sy, sz))
                     if sDist <= 2.5 then
                         sleep = 0
-                        if isOwner then
+                        if isOwnerOrPartner then
                             local limit = tonumber(house.stashLimit) or 100
                             local text = "~g~HOUSE STASH~s~\nCapacity: ~g~" .. tostring(limit) .. " kg~s~\nPress ~e~[G]~s~ to Open Storage"
                             DrawText3D(sx, sy, sz + 0.15, text)
@@ -511,7 +574,7 @@ CreateThread(function()
                                 Wait(1000)
                             end
                         else
-                            local text = "~e~HOUSE STASH~s~\nOwner Access Only"
+                            local text = "~e~HOUSE STASH~s~\nOwner & Partner Access Only"
                             DrawText3D(sx, sy, sz + 0.15, text)
                         end
                     end
@@ -519,5 +582,68 @@ CreateThread(function()
             end
         end
         Wait(sleep)
+    end
+end)
+
+-- Open Partner Management Menu Event Handler
+RegisterNetEvent("coi_hm:openPartnerMenu", function(data)
+    if not data or not data.houseId then return end
+    local houseId = data.houseId
+    local houseName = data.houseName or ("House #" .. houseId)
+    local partners = data.partners or {}
+    local nearbyPlayers = data.nearbyPlayers or {}
+
+    if lib and lib.registerContext and lib.showContext then
+        local options = {}
+
+        table.insert(options, {
+            title = "➕ Add Nearby Player as Partner",
+            description = #nearbyPlayers > 0 and ("Found " .. #nearbyPlayers .. " nearby player(s) within 15m") or "No nearby players found (within 15m)",
+            disabled = true
+        })
+
+        for _, p in ipairs(nearbyPlayers) do
+            local targetPlayer = p
+            table.insert(options, {
+                title = "👤 " .. (targetPlayer.name or ("Player #" .. targetPlayer.source)),
+                description = "Click to add as house partner",
+                icon = "user-plus",
+                onSelect = function()
+                    TriggerServerEvent("coi_hm:addPartner", { houseId = houseId, partner = targetPlayer })
+                end
+            })
+        end
+
+        table.insert(options, {
+            title = "👥 Current House Partners (" .. #partners .. ")",
+            description = #partners > 0 and "Click a partner below to remove them" or "No partners added yet",
+            disabled = true
+        })
+
+        for _, p in ipairs(partners) do
+            local partnerItem = p
+            local pName = (type(partnerItem) == "table" and partnerItem.name) or tostring(partnerItem)
+            table.insert(options, {
+                title = "👤 " .. pName,
+                description = "Click to remove partner access",
+                icon = "user-minus",
+                onSelect = function()
+                    TriggerServerEvent("coi_hm:removePartner", { houseId = houseId, partner = (type(partnerItem) == "table" and partnerItem or { name = partnerItem }) })
+                end
+            })
+        end
+
+        lib.registerContext({
+            id = "coi_hm_partners_" .. houseId,
+            title = "🤝 House Partners — " .. houseName,
+            options = options
+        })
+        lib.showContext("coi_hm_partners_" .. houseId)
+    else
+        SendNUIMessage({
+            action = "openPartnerModal",
+            data = data
+        })
+        SetNuiFocus(true, true)
     end
 end)

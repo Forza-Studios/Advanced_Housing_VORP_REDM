@@ -16,6 +16,7 @@ files {
 }
 
 client_scripts {
+    '@ox_lib/init.lua',
     'door_hashes.lua',
     'client.lua'
 }

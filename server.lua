@@ -116,6 +116,9 @@ CreateThread(function()
         ]], {}, function() end)
         MySQL.query([[
             ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `stashLimit` INT DEFAULT 100;
+        ]], {}, function() end)
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `partners` LONGTEXT DEFAULT NULL;
         ]], {}, function()
             -- Auto-migrate existing single-door records to doors JSON array
             MySQL.query("SELECT id, doorHash, modelHash, modelName, x, y, z, heading, doors FROM houses", {}, function(rows)
@@ -193,7 +196,62 @@ local function FormatHouseForClient(h)
         })
     end
     h.doors = doors
+
+    local partners = {}
+    if h.partners and h.partners ~= "" then
+        if type(h.partners) == "string" then
+            local ok, parsed = pcall(json.decode, h.partners)
+            if ok and type(parsed) == "table" then partners = parsed end
+        elseif type(h.partners) == "table" then
+            partners = h.partners
+        end
+    end
+    h.partners = partners
+
     return h
+end
+
+-- Helper to check if player is house owner or partner
+local function IsPlayerOwnerOrPartner(house, myInfo)
+    if not house then return false end
+
+    -- Owner check
+    if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+        local ownerLower = string.lower(tostring(house.owner))
+        if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+            return true
+        elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+            return true
+        elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+            return true
+        end
+    end
+
+    -- Partner check
+    if house.partners and type(house.partners) == "table" then
+        for _, p in ipairs(house.partners) do
+            if type(p) == "table" then
+                if p.name and myInfo.name and string.lower(tostring(p.name)) == string.lower(tostring(myInfo.name)) then
+                    return true
+                elseif p.steam and myInfo.steam and string.lower(tostring(p.steam)) == string.lower(tostring(myInfo.steam)) then
+                    return true
+                elseif p.charIdentifier and myInfo.charIdentifier and string.lower(tostring(p.charIdentifier)) == string.lower(tostring(myInfo.charIdentifier)) then
+                    return true
+                end
+            elseif type(p) == "string" then
+                local pLower = string.lower(p)
+                if myInfo.name and string.lower(tostring(myInfo.name)) == pLower then
+                    return true
+                elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == pLower then
+                    return true
+                elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == pLower then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
 end
 
 -- Fetch houses from DB and sync to client with player owner identity
@@ -440,22 +498,11 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
         local house = result[1]
         local myInfo = GetPlayerOwnerInfo(src)
 
-        local isOwner = false
-        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-            local ownerLower = string.lower(tostring(house.owner))
-            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-                isOwner = true
-            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-                isOwner = true
-            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-                isOwner = true
-            end
-        end
-
-        if not isOwner then
+        local isOwnerOrPartner = IsPlayerOwnerOrPartner(house, myInfo)
+        if not isOwnerOrPartner then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = "You do not own this house.",
+                description = "You are not an owner or partner of this house.",
                 type = "error"
             })
             return
@@ -681,7 +728,7 @@ RegisterNetEvent("coi_hm:removeStashCoords", function(data)
     end)
 end)
 
--- Open House Stash Event (vorp_inventory integration - Owner Only)
+-- Open House Stash Event (vorp_inventory integration - Owner & Partner Access)
 RegisterNetEvent("coi_hm:openStash", function(houseId)
     local src = source
     houseId = tonumber(houseId)
@@ -689,25 +736,14 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
-        local house = result[1]
+        local house = FormatHouseForClient(result[1])
         local myInfo = GetPlayerOwnerInfo(src)
 
-        local isOwner = false
-        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
-            local ownerLower = string.lower(tostring(house.owner))
-            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
-                isOwner = true
-            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
-                isOwner = true
-            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
-                isOwner = true
-            end
-        end
-
-        if not isOwner then
+        local isOwnerOrPartner = IsPlayerOwnerOrPartner(house, myInfo)
+        if not isOwnerOrPartner then
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = "Storage access is restricted to the house owner.",
+                description = "Storage access is restricted to house owners and partners.",
                 type = "error"
             })
             return
@@ -742,5 +778,193 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
                 type = "error"
             })
         end
+    end)
+end)
+
+-- Request Manage Partners Event (Owner Only)
+RegisterNetEvent("coi_hm:requestManagePartners", function(data)
+    local src = source
+    local houseId = (type(data) == "table") and tonumber(data.houseId) or tonumber(data)
+    if not houseId then return end
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = FormatHouseForClient(result[1])
+        local myInfo = GetPlayerOwnerInfo(src)
+
+        local isOwner = false
+        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+            local ownerLower = string.lower(tostring(house.owner))
+            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+                isOwner = true
+            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+                isOwner = true
+            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+                isOwner = true
+            end
+        end
+
+        if not isOwner then
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = "Only the house owner can manage house partners.",
+                type = "error"
+            })
+            return
+        end
+
+        local ped = GetPlayerPed(src)
+        local coords = GetEntityCoords(ped)
+        local nearbyPlayers = {}
+
+        for _, targetSrcStr in ipairs(GetPlayers()) do
+            local targetSrc = tonumber(targetSrcStr)
+            if targetSrc and targetSrc ~= src then
+                local targetPed = GetPlayerPed(targetSrc)
+                if DoesEntityExist(targetPed) then
+                    local targetCoords = GetEntityCoords(targetPed)
+                    if #(coords - targetCoords) <= 15.0 then
+                        local targetInfo = GetPlayerOwnerInfo(targetSrc)
+                        table.insert(nearbyPlayers, {
+                            source = targetSrc,
+                            name = targetInfo.name,
+                            steam = targetInfo.steam,
+                            charIdentifier = targetInfo.charIdentifier
+                        })
+                    end
+                end
+            end
+        end
+
+        TriggerClientEvent("coi_hm:openPartnerMenu", src, {
+            houseId = house.id,
+            houseName = house.name,
+            partners = house.partners or {},
+            nearbyPlayers = nearbyPlayers
+        })
+    end)
+end)
+
+-- Add Partner Event
+RegisterNetEvent("coi_hm:addPartner", function(data)
+    local src = source
+    if not data or not data.houseId or not data.partner then return end
+    local houseId = tonumber(data.houseId)
+    local partner = data.partner
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = FormatHouseForClient(result[1])
+        local myInfo = GetPlayerOwnerInfo(src)
+
+        local isOwner = false
+        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+            local ownerLower = string.lower(tostring(house.owner))
+            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+                isOwner = true
+            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+                isOwner = true
+            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+                isOwner = true
+            end
+        end
+
+        if not isOwner then return end
+
+        local partners = house.partners or {}
+        local pName = partner.name
+        local pSteam = partner.steam
+        local pCharId = partner.charIdentifier
+
+        for _, p in ipairs(partners) do
+            if (pName and p.name == pName) or (pSteam and p.steam == pSteam) then
+                TriggerClientEvent("ox_lib:notify", src, {
+                    title = "Housing Manager",
+                    description = (pName or "Player") .. " is already a partner of this house.",
+                    type = "error"
+                })
+                return
+            end
+        end
+
+        table.insert(partners, {
+            name = pName,
+            steam = pSteam,
+            charIdentifier = pCharId
+        })
+
+        local partnersJson = json.encode(partners)
+        MySQL.query("UPDATE houses SET partners = ? WHERE id = ?", { partnersJson, houseId }, function()
+            print(("^2[coi_hm]^7 Added partner '%s' to House #%s."):format(pName or "Unknown", houseId))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Added %s as a house partner!"):format(pName or "Player"),
+                type = "success"
+            })
+            if partner.source then
+                TriggerClientEvent("ox_lib:notify", partner.source, {
+                    title = "Housing Manager",
+                    description = ("You have been added as a partner to %s!"):format(house.name),
+                    type = "info"
+                })
+            end
+            FetchAndSendHouses(-1)
+        end)
+    end)
+end)
+
+-- Remove Partner Event
+RegisterNetEvent("coi_hm:removePartner", function(data)
+    local src = source
+    if not data or not data.houseId or not data.partner then return end
+    local houseId = tonumber(data.houseId)
+    local partnerToRemove = data.partner
+
+    MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
+        if not result or #result == 0 then return end
+        local house = FormatHouseForClient(result[1])
+        local myInfo = GetPlayerOwnerInfo(src)
+
+        local isOwner = false
+        if house.owner and house.owner ~= "" and house.owner ~= "Unowned" and house.owner ~= "For Sale" then
+            local ownerLower = string.lower(tostring(house.owner))
+            if myInfo.name and string.lower(tostring(myInfo.name)) == ownerLower then
+                isOwner = true
+            elseif myInfo.steam and string.lower(tostring(myInfo.steam)) == ownerLower then
+                isOwner = true
+            elseif myInfo.charIdentifier and string.lower(tostring(myInfo.charIdentifier)) == ownerLower then
+                isOwner = true
+            end
+        end
+
+        if not isOwner then return end
+
+        local partners = house.partners or {}
+        local updatedPartners = {}
+        local remName = partnerToRemove.name
+        local remSteam = partnerToRemove.steam
+
+        for _, p in ipairs(partners) do
+            local match = false
+            if remName and p.name and string.lower(tostring(p.name)) == string.lower(tostring(remName)) then
+                match = true
+            elseif remSteam and p.steam and string.lower(tostring(p.steam)) == string.lower(tostring(remSteam)) then
+                match = true
+            end
+            if not match then
+                table.insert(updatedPartners, p)
+            end
+        end
+
+        local partnersJson = json.encode(updatedPartners)
+        MySQL.query("UPDATE houses SET partners = ? WHERE id = ?", { partnersJson, houseId }, function()
+            print(("^2[coi_hm]^7 Removed partner '%s' from House #%s."):format(remName or "Unknown", houseId))
+            TriggerClientEvent("ox_lib:notify", src, {
+                title = "Housing Manager",
+                description = ("Removed %s from house partners."):format(remName or "Partner"),
+                type = "info"
+            })
+            FetchAndSendHouses(-1)
+        end)
     end)
 end)

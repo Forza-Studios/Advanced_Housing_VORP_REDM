@@ -963,9 +963,146 @@ function closeDashboard() {
 // ESC to close
 document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+        const partnerContainer = document.getElementById("partnerModalContainer");
+        if (partnerContainer && !partnerContainer.classList.contains("hidden")) {
+            closePartnerModalUI();
+            return;
+        }
         const dashboard = document.getElementById("dashboard");
         if (dashboard && !dashboard.classList.contains("hidden")) {
             closeDashboard();
         }
     }
 });
+
+// ===== Partner Management NUI Modal =====
+let currentPartnerData = null;
+
+function renderPartnerModal(data) {
+    currentPartnerData = data;
+    const container = document.getElementById("partnerModalContainer");
+    if (!container) return;
+
+    const houseId = data.houseId;
+    const houseName = data.houseName || `House #${houseId}`;
+    const partners = data.partners || [];
+    const nearbyPlayers = data.nearbyPlayers || [];
+
+    let nearbyHtml = "";
+    if (nearbyPlayers.length === 0) {
+        nearbyHtml = `<div class="partner-empty">No nearby players found (within 15m)</div>`;
+    } else {
+        nearbyHtml = nearbyPlayers.map(p => {
+            const pName = p.name || ('Player #' + p.source);
+            const pSteam = p.steam || '';
+            const pChar = p.charIdentifier || '';
+            return `
+                <div class="partner-item">
+                    <div class="partner-info">
+                        <span class="partner-icon">👤</span>
+                        <span class="partner-name">${pName}</span>
+                    </div>
+                    <button class="btn-primary btn-sm" onclick="addPartnerAction(${houseId}, ${p.source}, '${pName.replace(/'/g, "\\'")}', '${pSteam}', '${pChar}')">
+                        <span>➕ Add</span>
+                    </button>
+                </div>
+            `;
+        }).join("");
+    }
+
+    let partnersHtml = "";
+    if (partners.length === 0) {
+        partnersHtml = `<div class="partner-empty">No partners added to this house yet</div>`;
+    } else {
+        partnersHtml = partners.map(p => {
+            const pName = (typeof p === "object" && p.name) ? p.name : String(p);
+            const pSteam = (typeof p === "object" && p.steam) ? p.steam : "";
+            const pChar = (typeof p === "object" && p.charIdentifier) ? p.charIdentifier : "";
+            return `
+                <div class="partner-item">
+                    <div class="partner-info">
+                        <span class="partner-icon">🤝</span>
+                        <span class="partner-name">${pName}</span>
+                    </div>
+                    <button class="btn-danger btn-sm" onclick="removePartnerAction(${houseId}, '${pName.replace(/'/g, "\\'")}', '${pSteam}', '${pChar}')">
+                        <span>🗑️ Remove</span>
+                    </button>
+                </div>
+            `;
+        }).join("");
+    }
+
+    container.innerHTML = `
+        <div class="modal-overlay">
+            <div class="modal-content partner-modal">
+                <div class="modal-header">
+                    <h2>🤝 House Partners — ${houseName}</h2>
+                    <button class="modal-close" onclick="closePartnerModalUI()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="partner-section">
+                        <h3>➕ Add Nearby Players (15m)</h3>
+                        <div class="partner-list">${nearbyHtml}</div>
+                    </div>
+                    <div class="partner-section">
+                        <h3>👥 Current House Partners (${partners.length})</h3>
+                        <div class="partner-list">${partnersHtml}</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closePartnerModalUI()">Close</button>
+                </div>
+            </div>
+        </div>
+    `;
+    container.classList.remove("hidden");
+}
+
+function closePartnerModalUI() {
+    const container = document.getElementById("partnerModalContainer");
+    if (container) container.classList.add("hidden");
+    try {
+        fetch(`https://${GetParentResourceName()}/closePartnerModal`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+        });
+    } catch(e) {}
+}
+
+function addPartnerAction(houseId, targetSource, targetName, targetSteam, targetCharId) {
+    try {
+        fetch(`https://${GetParentResourceName()}/addPartner`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                houseId: houseId,
+                partner: {
+                    source: targetSource,
+                    name: targetName,
+                    steam: targetSteam,
+                    charIdentifier: targetCharId
+                }
+            })
+        });
+    } catch(e) {}
+    closePartnerModalUI();
+}
+
+function removePartnerAction(houseId, pName, pSteam, pCharId) {
+    try {
+        fetch(`https://${GetParentResourceName()}/removePartner`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                houseId: houseId,
+                partner: {
+                    name: pName,
+                    steam: pSteam,
+                    charIdentifier: pCharId
+                }
+            })
+        });
+    } catch(e) {}
+    closePartnerModalUI();
+}
