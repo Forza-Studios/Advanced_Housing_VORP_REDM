@@ -287,17 +287,24 @@ end
 
 local function DrawText3D(x, y, z, text)
     local onScreen, _x, _y = GetScreenCoordFromWorldCoord(x, y, z)
-    if not onScreen then return end
-
-    SetTextScale(0.35, 0.35)
-    SetTextFontForCurrentCommand(1)
-    SetTextColor(255, 255, 255, 220)
-    SetTextCentre(1)
-    SetTextDropshadow(1, 0, 0, 0, 200)
-
-    local str = CreateVarString(10, "LITERAL_STRING", text)
-    DisplayText(str, _x, _y)
+    if onScreen == true or onScreen == 1 or (type(onScreen) == "number" and onScreen > 0) then
+        SetTextScale(0.35, 0.35)
+        SetTextFontForCurrentCommand(6)
+        SetTextColor(255, 255, 255, 240)
+        SetTextCentre(1)
+        SetTextDropshadow(1, 0, 0, 0, 200)
+        local str = CreateVarString(10, "LITERAL_STRING", text, Citizen.ResultAsLong())
+        if str then
+            DisplayText(str, _x, _y)
+        end
+    end
 end
+
+-- Auto-request houses on resource start
+CreateThread(function()
+    Wait(1000)
+    TriggerServerEvent("coi_hm:requestHouses")
+end)
 
 -- Proximity loop to maintain physical door locks & show owner contact prompt
 CreateThread(function()
@@ -328,7 +335,7 @@ CreateThread(function()
                         -- Show 3D text prompt when near door (within 5.0m)
                         if dist <= 5.0 and isLocked then
                             local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
-                            local text = "🔒 House Locked\nContact ~y~" .. ownerName .. "~s~ for access"
+                            local text = "🔒 House Locked\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
                             DrawText3D(hx, hy, hz + 0.15, text)
                         end
                     end
