@@ -40,6 +40,13 @@ RegisterNUICallback("deleteHouse", function(data, cb)
     cb("ok")
 end)
 
+RegisterNUICallback("updateHouse", function(data, cb)
+    if data and data.id then
+        TriggerServerEvent("coi_hm:updateHouse", data)
+    end
+    cb("ok")
+end)
+
 RegisterNUICallback("close", function(_,cb)
     ui=false
     SetNuiFocus(false,false)

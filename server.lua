@@ -153,3 +153,33 @@ RegisterNetEvent("coi_hm:deleteHouse", function(houseId)
         FetchAndSendHouses(-1)
     end)
 end)
+
+-- Update House in DB
+RegisterNetEvent("coi_hm:updateHouse", function(data)
+    local src = source
+    if not data or not data.id then return end
+
+    local houseId = tonumber(data.id)
+    local name = (data.name and data.name ~= "") and data.name or ("House #" .. houseId)
+    local location = (data.location and data.location ~= "") and data.location or "Valentine"
+    local price = tonumber(data.price) or 500
+    local owner = (data.owner and data.owner ~= "") and data.owner or "Unowned"
+    local locked = (data.locked == 1 or data.locked == true or data.locked == "1") and 1 or 0
+    local status = (owner ~= "Unowned" and owner ~= "") and "owned" or "available"
+
+    MySQL.query([[
+        UPDATE houses
+        SET name = ?, location = ?, price = ?, owner = ?, status = ?, locked = ?
+        WHERE id = ?
+    ]], {
+        name, location, price, owner, status, locked, houseId
+    }, function(result)
+        print(("^2[coi_hm]^7 Updated house #%s (Owner: %s, Locked: %s)."):format(houseId, owner, tostring(locked == 1)))
+        TriggerClientEvent("ox_lib:notify", src, {
+            title = "Housing Manager",
+            description = ("House #%s updated successfully!"):format(houseId),
+            type = "success"
+        })
+        FetchAndSendHouses(-1)
+    end)
+end)

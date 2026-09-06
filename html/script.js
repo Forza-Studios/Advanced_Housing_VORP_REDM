@@ -232,6 +232,19 @@ function attachEvents() {
         });
     }
 
+    // Edit House
+    document.querySelectorAll(".action-btn.edit").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const houseId = btn.getAttribute("data-id");
+            if (houseId) {
+                const targetHouse = houseData.find(h => String(h.id) === String(houseId));
+                if (targetHouse) {
+                    openEditHouseModal(targetHouse);
+                }
+            }
+        });
+    });
+
     // Delete House
     document.querySelectorAll(".action-btn.delete").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -553,6 +566,113 @@ function openSaveHouseModal(door) {
         } catch(e) {}
 
         closeSaveModal();
+    });
+}
+
+function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// ===== Edit House Modal Form =====
+function openEditHouseModal(house) {
+    const existing = document.getElementById("editHouseModal");
+    if (existing) existing.remove();
+
+    const modal = document.createElement("div");
+    modal.id = "editHouseModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-panel" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>✏️ Edit House #${house.id}</h2>
+                <button class="modal-close-btn" id="editModalCloseBtn">✕</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">House Name</label>
+                        <input type="text" id="editHouseName" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(house.name || '')}" />
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Location</label>
+                            <select id="editHouseLocation" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                                ${["Valentine", "Saint Denis", "Blackwater", "Rhodes", "Strawberry", "Armadillo", "Tumbleweed", "Annesburg"].map(loc => `<option value="${loc}"${house.location === loc ? " selected" : ""}>${loc}</option>`).join("")}
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
+                            <input type="number" id="editHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.price || 500}" min="1" step="10" />
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner</label>
+                            <input type="text" id="editHouseOwner" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(house.owner || 'Unowned')}" />
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Lock State</label>
+                            <select id="editHouseLocked" class="scan-radius-select" style="width: 100%; font-size: 13px;">
+                                <option value="1"${(house.locked == 1 || house.locked == true || house.locked == "1" || house.locked == undefined) ? " selected" : ""}>🔒 Locked (True)</option>
+                                <option value="0"${(house.locked == 0 || house.locked == false || house.locked == "0") ? " selected" : ""}>🔓 Unlocked (False)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
+                        <div style="color: var(--accent); font-weight: 700;">Door Properties</div>
+                        <div><strong>Door Hash:</strong> ${house.doorHash || 'N/A'}</div>
+                        <div><strong>Model Name:</strong> ${house.modelName || 'Unknown'}</div>
+                        <div><strong>Position:</strong> ${house.x}, ${house.y}, ${house.z}</div>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                        <button class="btn-secondary" id="editModalCancelBtn">Cancel</button>
+                        <button class="btn-primary" id="confirmEditHouseBtn">💾 Update House</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    requestAnimationFrame(() => modal.classList.add("active"));
+
+    const closeEditModal = () => {
+        modal.classList.add("closing");
+        setTimeout(() => modal.remove(), 250);
+    };
+
+    document.getElementById("editModalCloseBtn").addEventListener("click", closeEditModal);
+    document.getElementById("editModalCancelBtn").addEventListener("click", closeEditModal);
+    document.getElementById("confirmEditHouseBtn").addEventListener("click", () => {
+        const name = document.getElementById("editHouseName").value.trim();
+        const location = document.getElementById("editHouseLocation").value;
+        const price = parseFloat(document.getElementById("editHousePrice").value) || 500;
+        const owner = document.getElementById("editHouseOwner").value.trim();
+        const locked = parseInt(document.getElementById("editHouseLocked").value);
+
+        const payload = {
+            id: house.id,
+            name: name,
+            location: location,
+            price: price,
+            owner: owner,
+            locked: locked
+        };
+
+        try {
+            fetch(`https://${GetParentResourceName()}/updateHouse`, {
+                method: "POST",
+                body: JSON.stringify(payload)
+            });
+        } catch(e) {}
+
+        closeEditModal();
     });
 }
 
