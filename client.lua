@@ -16,6 +16,22 @@ RegisterNetEvent("coi_hm:open", function()
     })
     TriggerServerEvent("coi_hm:requestHouses")
 end)
+RegisterNetEvent("coi_hm:playDoorSound", function(isLocked)
+    if isLocked then
+        -- Heavy iron deadbolt lock
+        PlaySoundFrontend(-1, "TITLE_SCREEN_EXIT", "DEATH_FAIL_RESPAWN_SOUNDS", true)
+    else
+        -- Solid latch release
+        PlaySoundFrontend(-1, "EXIT", "DEATH_FAIL_RESPAWN_SOUNDS", true)
+    end
+
+    -- Optional NUI fallback/custom sound
+    SendNUIMessage({
+        action = "playSound",
+        soundType = isLocked and "lock" or "unlock"
+    })
+end)
+
 
 local HouseBlips = {}
 

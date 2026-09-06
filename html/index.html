@@ -31,6 +31,10 @@
             closePartnerModalUI();
         } else if (e.data.action === "setNearbyPlayers") {
             renderNearbyPlayersSelect(e.data.players || []);
+        } else if (e.data.action === "playSound") {
+            if (typeof playLockSFX === "function") {
+                playLockSFX(e.data.soundType === "lock");
+            }
         }
     });
 

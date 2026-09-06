@@ -682,6 +682,7 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
                     description = ("Door %s!"):format(newDoorStatusStr),
                     type = (newDoorStatusStr == "Locked") and "error" or "success"
                 })
+                TriggerClientEvent("coi_hm:playDoorSound", src, newDoorStatusStr == "Locked")
                 FetchAndSendHouses(-1)
             end)
         end)
