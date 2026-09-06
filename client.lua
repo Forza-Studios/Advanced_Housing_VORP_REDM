@@ -383,7 +383,7 @@ CreateThread(function()
                         -- Show 3D text prompt when near door (within 5.0m)
                         if dist <= 5.0 and isLocked then
                             local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
-                            local text = "🔒 House Locked\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
+                            local text = "~e~House Locked~s~\nContact ~y~" .. tostring(ownerName) .. "~s~ for access"
                             DrawText3D(hx, hy, hz + 0.15, text)
                         end
                     end
