@@ -300,15 +300,22 @@ async function scanForDoors() {
         // Running outside NUI — show dummy data for testing
         setTimeout(() => {
             renderDoorResults({
-                count: 4,
+                count: 3,
                 doors: [
-                    { entity: 142857, model: -1504838576, distance: "1.24", heading: "90.00", networked: true, x: "-245.120", y: "732.540", z: "117.230" },
-                    { entity: 238104, model: 1327939172, distance: "2.87", heading: "180.50", networked: false, x: "-243.800", y: "734.100", z: "117.230" },
-                    { entity: 391562, model: -876291034, distance: "4.55", heading: "270.00", networked: true, x: "-247.650", y: "730.200", z: "117.230" },
-                    { entity: 504219, model: 2044852637, distance: "8.12", heading: "45.75", networked: false, x: "-240.300", y: "738.900", z: "117.230" },
+                    { doorHash: 1948573021, model: -1504838576, distance: "1.24", state: 1, x: "-245.120", y: "732.540", z: "117.230" },
+                    { doorHash: 832641057, model: 1327939172, distance: "2.87", state: 0, x: "-243.800", y: "734.100", z: "117.230" },
+                    { doorHash: -476209183, model: -876291034, distance: "4.55", state: 1, x: "-247.650", y: "730.200", z: "117.230" },
                 ]
             });
         }, 1200);
+    }
+}
+
+function getDoorStateLabel(state) {
+    switch (state) {
+        case 0: return { text: "Unlocked", cls: "val-yes" };
+        case 1: return { text: "Locked", cls: "val-no" };
+        default: return { text: `State ${state}`, cls: "" };
     }
 }
 
@@ -320,8 +327,8 @@ function renderDoorResults(result) {
         modalBody.innerHTML = `
             <div class="scan-empty">
                 <div class="scan-empty-icon">🔍</div>
-                <div class="scan-empty-title">No Doors Found</div>
-                <div class="scan-empty-sub">No objects were detected within 10m of your position.</div>
+                <div class="scan-empty-title">No DoorSystem Doors Found</div>
+                <div class="scan-empty-sub">No registered doors were detected within 10m of your position.</div>
             </div>
         `;
         return;
@@ -329,29 +336,31 @@ function renderDoorResults(result) {
 
     modalBody.innerHTML = `
         <div class="scan-results-header">
-            <span class="scan-found-count">Found <strong>${result.count}</strong> nearby object${result.count !== 1 ? "s" : ""}</span>
-            <span class="scan-found-sub">Within 10m radius</span>
+            <span class="scan-found-count">Found <strong>${result.count}</strong> door${result.count !== 1 ? "s" : ""}</span>
+            <span class="scan-found-sub">Validated via DoorSystem</span>
         </div>
         <div class="scan-results-list">
-            ${result.doors.map((d, i) => `
+            ${result.doors.map((d, i) => {
+                const stateInfo = getDoorStateLabel(d.state);
+                return `
                 <div class="door-card" style="animation-delay: ${i * 0.06}s">
                     <div class="door-card-header">
                         <span class="door-card-icon">🚪</span>
-                        <span class="door-card-entity">Entity #${d.entity}</span>
+                        <span class="door-card-entity">Door #${d.doorHash}</span>
                         <span class="door-card-dist">${d.distance}m</span>
                     </div>
                     <div class="door-card-details">
+                        <div class="door-detail">
+                            <span class="door-detail-label">Door Hash</span>
+                            <span class="door-detail-value">${d.doorHash}</span>
+                        </div>
                         <div class="door-detail">
                             <span class="door-detail-label">Model Hash</span>
                             <span class="door-detail-value">${d.model}</span>
                         </div>
                         <div class="door-detail">
-                            <span class="door-detail-label">Heading</span>
-                            <span class="door-detail-value">${d.heading}°</span>
-                        </div>
-                        <div class="door-detail">
-                            <span class="door-detail-label">Networked</span>
-                            <span class="door-detail-value ${d.networked ? 'val-yes' : 'val-no'}">${d.networked ? "Yes" : "No"}</span>
+                            <span class="door-detail-label">State</span>
+                            <span class="door-detail-value ${stateInfo.cls}">${stateInfo.text}</span>
                         </div>
                         <div class="door-detail">
                             <span class="door-detail-label">Position</span>
@@ -362,7 +371,8 @@ function renderDoorResults(result) {
                         <button class="door-select-btn">Select as Door</button>
                     </div>
                 </div>
-            `).join("")}
+                `;
+            }).join("")}
         </div>
     `;
 }
