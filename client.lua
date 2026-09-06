@@ -1,4 +1,4 @@
-local ui = false
+local LoadedHouses = {}
 
 RegisterCommand("hm", function()
     TriggerServerEvent("coi_hm:requestOpen")
@@ -15,10 +15,12 @@ RegisterNetEvent("coi_hm:open", function()
 end)
 
 RegisterNetEvent("coi_hm:setHouses", function(houses)
+    LoadedHouses = houses or {}
     SendNUIMessage({
         action = "setHouses",
-        houses = houses or {}
+        houses = LoadedHouses
     })
+    ApplyAllDoorLocks()
 end)
 
 RegisterNUICallback("getHouses", function(_, cb)
@@ -241,3 +243,98 @@ function GetNearestDoorData()
         z=string.format("%.3f",coords.z)
     }
 end
+
+-- ===== Physical Door Lock Enforcement & 3D Proximity Prompt =====
+
+local function RegisterDoorHash(hash)
+    if not hash or hash == 0 then return end
+    if IsDoorRegisteredWithSystem and IsDoorRegisteredWithSystem(hash) then return end
+    Citizen.InvokeNative(0xD99229FE93B46286, hash, 1, 1, 0, 0, 0, 0)
+end
+
+local function SetDoorLockState(hash, isLocked)
+    if not hash or hash == 0 then return end
+    RegisterDoorHash(hash)
+    if isLocked then
+        if DoorSystemSetOpenRatio then
+            DoorSystemSetOpenRatio(hash, 0.0, false, false)
+        else
+            Citizen.InvokeNative(0xB6E6FBA95C7324AC, hash, 0.0, true)
+        end
+        if DoorSystemSetDoorState then
+            DoorSystemSetDoorState(hash, 1, false, false)
+        else
+            Citizen.InvokeNative(0x6BAB9442830C7F53, hash, 1)
+        end
+    else
+        if DoorSystemSetDoorState then
+            DoorSystemSetDoorState(hash, 0, false, false)
+        else
+            Citizen.InvokeNative(0x6BAB9442830C7F53, hash, 0)
+        end
+    end
+end
+
+function ApplyAllDoorLocks()
+    for _, house in ipairs(LoadedHouses) do
+        local doorHash = ToPrimitiveNumber(house.doorHash)
+        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
+        if doorHash and doorHash ~= 0 then
+            SetDoorLockState(doorHash, isLocked)
+        end
+    end
+end
+
+local function DrawText3D(x, y, z, text)
+    local onScreen, _x, _y = GetScreenCoordFromWorldCoord(x, y, z)
+    if not onScreen then return end
+
+    SetTextScale(0.35, 0.35)
+    SetTextFontForCurrentCommand(1)
+    SetTextColor(255, 255, 255, 220)
+    SetTextCentre(1)
+    SetTextDropshadow(1, 0, 0, 0, 200)
+
+    local str = CreateVarString(10, "LITERAL_STRING", text)
+    DisplayText(str, _x, _y)
+end
+
+-- Proximity loop to maintain physical door locks & show owner contact prompt
+CreateThread(function()
+    while true do
+        local sleep = 1000
+        if #LoadedHouses > 0 then
+            local ped = PlayerPedId()
+            local coords = GetEntityCoords(ped)
+
+            for _, house in ipairs(LoadedHouses) do
+                local hx = tonumber(house.x)
+                local hy = tonumber(house.y)
+                local hz = tonumber(house.z)
+                local doorHash = ToPrimitiveNumber(house.doorHash)
+
+                if hx and hy and hz then
+                    local dist = #(coords - vector3(hx, hy, hz))
+
+                    if dist <= 25.0 then
+                        sleep = 0
+                        local isLocked = (house.locked == 1 or house.locked == true or house.locked == "1" or house.locked == nil)
+
+                        -- Continuously enforce physical door state in game engine
+                        if doorHash and doorHash ~= 0 then
+                            SetDoorLockState(doorHash, isLocked)
+                        end
+
+                        -- Show 3D text prompt when near door (within 5.0m)
+                        if dist <= 5.0 and isLocked then
+                            local ownerName = (house.owner and house.owner ~= "") and house.owner or "Owner"
+                            local text = "🔒 House Locked\nContact ~y~" .. ownerName .. "~s~ for access"
+                            DrawText3D(hx, hy, hz + 0.15, text)
+                        end
+                    end
+                end
+            end
+        end
+        Wait(sleep)
+    end
+end)
