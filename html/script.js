@@ -158,7 +158,6 @@ function buildDashboard(houses, filter = "all", search = "") {
                         <td>
                             <div class="action-btns">
                                 <button class="action-btn doors" title="Manage Doors (${(h.doors || []).length || 1})" data-id="${h.id}">🚪</button>
-                                <button class="action-btn stash" title="📍 Set Stash at My Position" data-id="${h.id}">📦</button>
                                 <button class="action-btn edit" title="Edit" data-id="${h.id}">✏️</button>
                                 <button class="action-btn delete" title="Delete" data-id="${h.id}">🗑️</button>
                             </div>
@@ -263,20 +262,6 @@ function attachEvents() {
         });
     });
 
-    // Set Stash Position
-    document.querySelectorAll(".action-btn.stash").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const houseId = btn.getAttribute("data-id");
-            if (houseId) {
-                try {
-                    fetch(`https://${GetParentResourceName()}/setStashAtCurrentPos`, {
-                        method: "POST",
-                        body: JSON.stringify({ houseId: houseId })
-                    });
-                } catch (e) {}
-            }
-        });
-    });
 
     // Delete House
     document.querySelectorAll(".action-btn.delete").forEach(btn => {
