@@ -2,7 +2,39 @@ local AllowedSteam = {
     ["steam:110000158767928"] = true
 }
 
--- ===== SQL Auto-Executor =====
+-- Helper function to resolve player creator / character owner name
+local function GetPlayerOwnerId(src)
+    if GetResourceState("vorp_core") == "started" then
+        local ok, core = pcall(function() return exports.vorp_core:GetCore() end)
+        if ok and core and core.getUser then
+            local user = core.getUser(src)
+            if user then
+                local character = user.getUsedCharacter
+                if character then
+                    local firstname = character.firstname or ""
+                    local lastname = character.lastname or ""
+                    local fullName = (firstname .. " " .. lastname):gsub("^%s*(.-)%s*$", "%1")
+                    local charIdentifier = character.charidentifier
+                    if fullName ~= "" then
+                        return fullName
+                    elseif charIdentifier then
+                        return "Char #" .. tostring(charIdentifier)
+                    end
+                end
+            end
+        end
+    end
+
+    -- Fallback to identifiers (Steam, License, or Player Name)
+    for _, id in ipairs(GetPlayerIdentifiers(src)) do
+        if string.sub(id, 1, 6) == "steam:" then
+            return id
+        end
+    end
+    return GetPlayerName(src) or "Unknown Creator"
+end
+
+-- ===== SQL Auto-Executor & Schema Migration =====
 CreateThread(function()
     while GetResourceState("oxmysql") ~= "started" do
         Wait(100)
@@ -16,7 +48,8 @@ CreateThread(function()
             `location` VARCHAR(128) DEFAULT 'Valentine',
             `price` INT DEFAULT 500,
             `owner` VARCHAR(128) DEFAULT NULL,
-            `status` VARCHAR(32) DEFAULT 'available',
+            `status` VARCHAR(32) DEFAULT 'owned',
+            `locked` TINYINT(1) DEFAULT 1,
             `doorHash` VARCHAR(64) NOT NULL,
             `modelHash` VARCHAR(64) DEFAULT NULL,
             `modelName` VARCHAR(128) DEFAULT NULL,
@@ -29,6 +62,10 @@ CreateThread(function()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]], {}, function(result)
         print("^2[coi_hm]^7 SQL table `houses` initialized successfully.")
+        -- Migration check for existing table without locked column
+        MySQL.query([[
+            ALTER TABLE `houses` ADD COLUMN IF NOT EXISTS `locked` TINYINT(1) DEFAULT 1;
+        ]], {}, function() end)
     end)
 end)
 
@@ -68,11 +105,13 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local src = source
     if not data or not data.doorHash then return end
 
+    local creatorOwner = GetPlayerOwnerId(src)
     local name = (data.name and data.name ~= "") and data.name or ("House #" .. tostring(data.doorHash))
     local location = (data.location and data.location ~= "") and data.location or "Valentine"
     local price = tonumber(data.price) or 500
-    local owner = (data.owner and data.owner ~= "") and data.owner or nil
-    local status = data.status or "available"
+    local owner = (data.owner and data.owner ~= "") and data.owner or creatorOwner
+    local status = "owned"
+    local locked = (data.locked ~= nil) and (data.locked and 1 or 0) or 1 -- default locked = true (1)
     local doorHash = tostring(data.doorHash)
     local modelHash = tostring(data.modelHash or data.model or "")
     local modelName = tostring(data.modelName or "")
@@ -82,16 +121,16 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     local heading = tonumber(data.heading) or 0.0
 
     MySQL.insert([[
-        INSERT INTO houses (name, location, price, owner, status, doorHash, modelHash, modelName, x, y, z, heading)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO houses (name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
-        name, location, price, owner, status, doorHash, modelHash, modelName, x, y, z, heading
+        name, location, price, owner, status, locked, doorHash, modelHash, modelName, x, y, z, heading
     }, function(insertId)
         if insertId then
-            print(("^2[coi_hm]^7 Saved house #%s into SQL table `houses`."):format(insertId))
+            print(("^2[coi_hm]^7 Created new house #%s owned by '%s' (Locked: %s)."):format(insertId, owner, tostring(locked == 1)))
             TriggerClientEvent("ox_lib:notify", src, {
                 title = "Housing Manager",
-                description = "House saved successfully!",
+                description = ("House saved! Owner: %s (Locked: True)"):format(owner),
                 type = "success"
             })
             FetchAndSendHouses(-1)

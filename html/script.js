@@ -151,7 +151,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                         </td>
                         <td class="col-price">${fmt(h.price)}</td>
                         <td class="col-owner">${h.owner || "Unowned"}</td>
-                        <td><span class="status-badge ${h.status || 'available'}">${(h.status || 'available').charAt(0).toUpperCase() + (h.status || 'available').slice(1)}</span></td>
+                        <td><span class="status-badge ${h.status || 'owned'}">${(h.locked === 1 || h.locked === true || h.locked === undefined) ? '🔒 Locked' : '🔓 Unlocked'}</span></td>
                         <td>
                             <div class="action-btns">
                                 <button class="action-btn edit" title="Edit" data-id="${h.id}">✏️</button>
@@ -494,12 +494,16 @@ function openSaveHouseModal(door) {
                             <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
                         </div>
                     </div>
-                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
-                        <div style="color: var(--accent); font-weight: 700;">Selected Door Information</div>
+                    <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
+                        <div style="color: var(--accent); font-weight: 700;">Selected Door Settings</div>
                         <div><strong>Door Hash:</strong> ${door.doorHash}</div>
                         <div><strong>Model Name:</strong> ${door.modelName || 'Unknown'}</div>
                         <div><strong>Model Hash:</strong> ${door.model}</div>
                         <div><strong>Position:</strong> ${door.x}, ${door.y}, ${door.z}</div>
+                        <div style="margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                            <span><strong>Initial Lock State:</strong> <span style="color: #c07070;">🔒 Locked (True)</span></span>
+                            <span><strong>Owner:</strong> <span style="color: var(--accent);">You (Creator)</span></span>
+                        </div>
                     </div>
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                         <button class="btn-secondary" id="saveModalCancelBtn">Cancel</button>
@@ -529,8 +533,9 @@ function openSaveHouseModal(door) {
             name: houseName,
             location: location,
             price: price,
-            owner: null,
-            status: "available",
+            owner: null, // Server will auto-assign creator character name / ID
+            status: "owned",
+            locked: 1, // Default locked = true (1)
             doorHash: door.doorHash,
             modelHash: door.model,
             modelName: door.modelName,
