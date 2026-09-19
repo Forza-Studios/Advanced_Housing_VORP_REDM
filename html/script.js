@@ -24,22 +24,17 @@ function fmt(n) {
 
 // Build the full dashboard HTML
 function buildDashboard(houses, filter = "all", search = "") {
-    // Filter
+    // Filter by search
     let filtered = houses;
-    if (filter !== "all") {
-        filtered = filtered.filter(h => h.location === filter);
-    }
     if (search.trim()) {
         const q = search.toLowerCase();
         filtered = filtered.filter(h =>
             h.name.toLowerCase().includes(q) ||
-            h.location.toLowerCase().includes(q) ||
             (h.owner && h.owner.toLowerCase().includes(q))
         );
     }
 
     const stats = computeStats(houses);
-    const locations = getLocations(houses);
 
     return `
     <!-- Sidebar -->
@@ -51,9 +46,6 @@ function buildDashboard(houses, filter = "all", search = "") {
             <div class="nav-item active" data-page="houses">
                 <span class="nav-icon">🏘️</span> Houses
             </div>
-            <div class="nav-item" data-page="locations">
-                <span class="nav-icon">📍</span> Locations
-            </div>
             <div class="nav-item" data-page="owners">
                 <span class="nav-icon">👤</span> Owners
             </div>
@@ -62,7 +54,7 @@ function buildDashboard(houses, filter = "all", search = "") {
             </div>
         </nav>
         <div class="sidebar-footer">
-            <span>Build a Higher Tomorrow</span>
+            <span>RedM VORP Housing</span>
         </div>
     </div>
 
@@ -70,21 +62,24 @@ function buildDashboard(houses, filter = "all", search = "") {
     <div class="main-content">
         <!-- Top Bar -->
         <div class="top-bar">
-            <h1>House List</h1>
-            <div class="top-bar-actions">
+            <div class="top-bar-left">
+                <h1>House Catalog</h1>
+                <button class="btn-primary" id="addHouseBtn">
+                    <span>＋</span> Add House
+                </button>
+            </div>
+            <div class="top-bar-center">
                 <div class="search-box">
                     <span class="search-icon">🔍</span>
-                    <input type="text" id="searchInput" placeholder="Search houses by name or location..." value="${search}" />
+                    <input type="text" id="searchInput" placeholder="Search houses by name or owner..." value="${search}" />
                 </div>
-                <select class="filter-select" id="filterSelect">
-                    <option value="all"${filter === "all" ? " selected" : ""}>All Locations</option>
-                    ${locations.map(loc => `<option value="${loc}"${filter === loc ? " selected" : ""}>${loc}</option>`).join("")}
-                </select>
+            </div>
+            <div class="top-bar-right">
                 <button class="btn-secondary" id="refreshBtn" title="Refresh houses from database">
                     <span>🔄</span> Refresh
                 </button>
-                <button class="btn-primary" id="addHouseBtn">
-                    <span>＋</span> Add House
+                <button class="close-btn" id="closeBtn" title="Close Catalog">
+                    ✕
                 </button>
             </div>
         </div>
@@ -94,7 +89,7 @@ function buildDashboard(houses, filter = "all", search = "") {
             <div class="stat-card gold">
                 <div class="stat-label">Total Houses</div>
                 <div class="stat-value">${stats.total}</div>
-                <div class="stat-sub">Across ${locations.length} locations</div>
+                <div class="stat-sub">Registered properties</div>
             </div>
             <div class="stat-card green">
                 <div class="stat-label">Available</div>
@@ -120,7 +115,6 @@ function buildDashboard(houses, filter = "all", search = "") {
                     <tr>
                         <th>ID</th>
                         <th>House Name</th>
-                        <th>Location</th>
                         <th>Price</th>
                         <th>Owner</th>
                         <th>Status</th>
@@ -130,7 +124,7 @@ function buildDashboard(houses, filter = "all", search = "") {
                 <tbody>
                     ${filtered.length === 0 ? `
                     <tr>
-                        <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                        <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">
                             No houses saved in database yet. Click <strong>＋ Add House</strong> to scan doors and add houses!
                         </td>
                     </tr>
@@ -144,12 +138,6 @@ function buildDashboard(houses, filter = "all", search = "") {
                                     <span class="house-name-text">${h.name}</span>
                                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 ${(h.doors || []).length || 1} door${((h.doors || []).length || 1) !== 1 ? 's' : ''} | 📦 Stash: ${h.stashX ? (h.stashLimit || 100) + 'kg' : 'Not Set'}</div>
                                 </div>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="col-location">
-                                <span class="location-dot"></span>
-                                ${h.location}
                             </div>
                         </td>
                         <td class="col-price">${fmt(h.price)}</td>
@@ -171,7 +159,7 @@ function buildDashboard(houses, filter = "all", search = "") {
         <!-- Footer -->
         <div class="table-footer">
             <span>Showing ${filtered.length} of ${houses.length} houses</span>
-            <button class="close-btn" id="closeBtn">✕ Close</button>
+            <button class="close-btn" id="closeBtnFooter">✕ Close</button>
         </div>
     </div>
     `;
@@ -224,6 +212,12 @@ function attachEvents() {
     const closeBtn = document.getElementById("closeBtn");
     if (closeBtn) {
         closeBtn.addEventListener("click", () => {
+            closeDashboard();
+        });
+    }
+    const closeBtnFooter = document.getElementById("closeBtnFooter");
+    if (closeBtnFooter) {
+        closeBtnFooter.addEventListener("click", () => {
             closeDashboard();
         });
     }
@@ -608,24 +602,9 @@ function openSaveHouseModal(door) {
                         <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">House Name</label>
                         <input type="text" id="saveHouseName" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${door.modelName || ('House #' + door.doorHash)}" />
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Location</label>
-                            <select id="saveHouseLocation" class="scan-radius-select" style="width: 100%; font-size: 13px;">
-                                <option value="Valentine">Valentine</option>
-                                <option value="Saint Denis">Saint Denis</option>
-                                <option value="Blackwater">Blackwater</option>
-                                <option value="Rhodes">Rhodes</option>
-                                <option value="Strawberry">Strawberry</option>
-                                <option value="Armadillo">Armadillo</option>
-                                <option value="Tumbleweed">Tumbleweed</option>
-                                <option value="Annesburg">Annesburg</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
-                            <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
-                        </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
+                        <input type="number" id="saveHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="500" min="1" step="10" />
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
@@ -674,7 +653,7 @@ function openSaveHouseModal(door) {
     document.getElementById("saveModalCancelBtn").addEventListener("click", closeSaveModal);
     document.getElementById("confirmSaveHouseBtn").addEventListener("click", () => {
         const houseName = document.getElementById("saveHouseName").value.trim() || ("House #" + door.doorHash);
-        const location = document.getElementById("saveHouseLocation").value;
+        const location = "Valentine";
         const price = parseFloat(document.getElementById("saveHousePrice").value) || 500;
         const ownerMode = document.getElementById("saveHouseOwnerMode").value;
         const ownerVal = (ownerMode === "forsale") ? "For Sale" : null;
@@ -742,17 +721,9 @@ function openEditHouseModal(house) {
                         <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">House Name</label>
                         <input type="text" id="editHouseName" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${escapeHtml(house.name || '')}" />
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Location</label>
-                            <select id="editHouseLocation" class="scan-radius-select" style="width: 100%; font-size: 13px;">
-                                ${["Valentine", "Saint Denis", "Blackwater", "Rhodes", "Strawberry", "Armadillo", "Tumbleweed", "Annesburg"].map(loc => `<option value="${loc}"${house.location === loc ? " selected" : ""}>${loc}</option>`).join("")}
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
-                            <input type="number" id="editHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.price || 500}" min="1" step="10" />
-                        </div>
+                    <div>
+                        <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Price ($)</label>
+                        <input type="number" id="editHousePrice" class="scan-filter-input" style="width: 100%; font-size: 13px;" value="${house.price || 500}" min="1" step="10" />
                     </div>
                     <div>
                         <label style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 4px;">Owner CharID</label>
@@ -871,7 +842,7 @@ function openEditHouseModal(house) {
     }
     document.getElementById("confirmEditHouseBtn").addEventListener("click", () => {
         const name = document.getElementById("editHouseName").value.trim();
-        const location = document.getElementById("editHouseLocation").value;
+        const location = house.location || "Valentine";
         const price = parseFloat(document.getElementById("editHousePrice").value) || 500;
         const owner = document.getElementById("editHouseOwner").value.trim();
         const locked = parseInt(document.getElementById("editHouseLocked").value);
@@ -928,7 +899,6 @@ function openDeleteConfirmationModal(house) {
 
                     <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 4px;">
                         <div><strong>House Name:</strong> ${escapeHtml(house.name)}</div>
-                        <div><strong>Location:</strong> ${escapeHtml(house.location || 'N/A')}</div>
                         <div><strong>Owner:</strong> ${escapeHtml(house.owner || 'Unowned')}</div>
                         <div><strong>Attached Doors:</strong> ${(house.doors || []).length || 1} door(s)</div>
                     </div>
