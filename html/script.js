@@ -46,11 +46,8 @@ function buildDashboard(houses, filter = "all", search = "") {
             <div class="nav-item active" data-page="houses">
                 <span class="nav-icon">🏘️</span> Houses
             </div>
-            <div class="nav-item" data-page="owners">
-                <span class="nav-icon">👤</span> Owners
-            </div>
-            <div class="nav-item" data-page="settings">
-                <span class="nav-icon">⚙️</span> Settings
+            <div class="nav-item" data-page="apartments">
+                <span class="nav-icon">🏢</span> Apartments
             </div>
         </nav>
         <div class="sidebar-footer">
