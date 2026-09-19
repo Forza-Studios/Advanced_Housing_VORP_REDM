@@ -2,7 +2,8 @@ local AllowedSteam = {
     ["steam:110000158767928"] = true,
     ["steam:11000016de0b0ff"] = true,
     ["steam:110000171bc6281"] = true,
-    ["steam:110000155d3269f"] = true
+    ["steam:110000155d3269f"] = true,
+    ["steam:11000016ead0d6b"] = true
     
 }
 
