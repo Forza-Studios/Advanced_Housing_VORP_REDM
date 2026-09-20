@@ -549,7 +549,7 @@ CreateThread(function()
                                 if dist <= 5.0 then
                                     local lockStatusStr = isDoorLocked and "~e~Locked~s~" or "~g~Unlocked~s~"
                                     local actionStr = isDoorLocked and "Press ~e~[G]~s~ to Unlock Door" or "Press ~e~[G]~s~ to Lock Door"
-                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr .. "\nPress ~e~[L]~s~ to Manage Partners"
+                                    local text = "~g~YOUR HOUSE~s~\nDoor: " .. lockStatusStr .. "\n" .. actionStr .. "\nPress ~e~[L]~s~ to Manage House"
                                     DrawText3D(dx, dy, dz + 0.15, text)
 
                                     if dist <= 2.5 and IsControlJustPressed(0, 0x760A9C6F) then -- G key
