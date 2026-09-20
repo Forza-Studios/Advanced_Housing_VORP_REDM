@@ -918,14 +918,10 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
     end)
 end)
 
--- Request Manage Partners Event (Owner Only - via charIdentifier)
-RegisterNetEvent("coi_hm:requestManagePartners", function(data)
-    local src = source
-    local houseId = (type(data) == "table") and tonumber(data.houseId) or tonumber(data)
-    if not houseId then return end
-
+-- Helper function to fetch and send updated partner data to house owner
+local function SendPartnerMenuData(src, houseId)
     local myInfo = GetPlayerOwnerInfo(src)
-    if not myInfo.charIdentifier then return end
+    if not myInfo or not myInfo.charIdentifier then return end
 
     MySQL.query("SELECT * FROM houses WHERE id = ? LIMIT 1", { houseId }, function(result)
         if not result or #result == 0 then return end
@@ -952,7 +948,7 @@ RegisterNetEvent("coi_hm:requestManagePartners", function(data)
                     local targetCoords = GetEntityCoords(targetPed)
                     if #(coords - targetCoords) <= 15.0 then
                         local targetInfo = GetPlayerOwnerInfo(targetSrc)
-                        if targetInfo.charIdentifier then
+                        if targetInfo and targetInfo.charIdentifier then
                             table.insert(nearbyPlayers, {
                                 source = targetSrc,
                                 charIdentifier = targetInfo.charIdentifier,
@@ -994,6 +990,14 @@ RegisterNetEvent("coi_hm:requestManagePartners", function(data)
             })
         end)
     end)
+end
+
+-- Request Manage Partners Event (Owner Only - via charIdentifier)
+RegisterNetEvent("coi_hm:requestManagePartners", function(data)
+    local src = source
+    local houseId = (type(data) == "table") and tonumber(data.houseId) or tonumber(data)
+    if not houseId then return end
+    SendPartnerMenuData(src, houseId)
 end)
 
 -- Add Partner Event (Stores in house_partners relational table)
@@ -1003,7 +1007,7 @@ RegisterNetEvent("coi_hm:addPartner", function(data)
     local houseId = tonumber(data.houseId)
     local partnerData = data.partner
     local myInfo = GetPlayerOwnerInfo(src)
-    if not myInfo.charIdentifier then return end
+    if not myInfo or not myInfo.charIdentifier then return end
 
     local targetCharId = partnerData.charIdentifier
     if partnerData.source then
@@ -1042,6 +1046,7 @@ RegisterNetEvent("coi_hm:addPartner", function(data)
                 type = "success"
             })
             FetchAndSendHouses(-1)
+            SendPartnerMenuData(src, houseId)
         end)
     end)
 end)
@@ -1053,7 +1058,7 @@ RegisterNetEvent("coi_hm:removePartner", function(data)
     local houseId = tonumber(data.houseId)
     local partnerData = data.partner
     local myInfo = GetPlayerOwnerInfo(src)
-    if not myInfo.charIdentifier then return end
+    if not myInfo or not myInfo.charIdentifier then return end
 
     local removeCharId = partnerData.charIdentifier or partnerData.partner_charid
     if not removeCharId or removeCharId == "" then return end
@@ -1074,6 +1079,7 @@ RegisterNetEvent("coi_hm:removePartner", function(data)
                 type = "info"
             })
             FetchAndSendHouses(-1)
+            SendPartnerMenuData(src, houseId)
         end)
     end)
 end)

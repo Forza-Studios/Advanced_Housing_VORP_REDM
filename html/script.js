@@ -1120,6 +1120,27 @@ document.addEventListener("keydown", (e) => {
 // ===== Partner Management NUI Modal =====
 let currentPartnerData = null;
 
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function escapeJsString(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+function handleOverlayClick(event) {
+    if (event.target && event.target.classList.contains("modal-overlay")) {
+        closePartnerModalUI();
+    }
+}
+
 function renderPartnerModal(data) {
     currentPartnerData = data;
     const container = document.getElementById("partnerModalContainer");
@@ -1132,7 +1153,11 @@ function renderPartnerModal(data) {
 
     let nearbyHtml = "";
     if (nearbyPlayers.length === 0) {
-        nearbyHtml = `<div class="partner-empty">No nearby players found (within 15m)</div>`;
+        nearbyHtml = `
+            <div class="partner-empty">
+                <div>🌵 No townfolk or companions nearby</div>
+                <div style="font-size: 11px; margin-top: 4px; color: #7a6b57;">Players must be within 15m to be granted partner access.</div>
+            </div>`;
     } else {
         nearbyHtml = nearbyPlayers.map(p => {
             const pName = p.name || ('Player #' + p.source);
@@ -1141,11 +1166,14 @@ function renderPartnerModal(data) {
             return `
                 <div class="partner-item">
                     <div class="partner-info">
-                        <span class="partner-icon">👤</span>
-                        <span class="partner-name">${pName}</span>
+                        <span class="partner-icon">🤠</span>
+                        <div>
+                            <div class="partner-name">${escapeHtml(pName)}</div>
+                            <div class="partner-sub">Server ID: #${p.source}</div>
+                        </div>
                     </div>
-                    <button class="btn-primary btn-sm" onclick="addPartnerAction(${houseId}, ${p.source}, '${pName.replace(/'/g, "\\'")}', '${pSteam}', '${pChar}')">
-                        <span>➕ Add</span>
+                    <button class="btn-grant" onclick="addPartnerAction(${houseId}, ${p.source}, '${escapeJsString(pName)}', '${escapeJsString(pSteam)}', '${escapeJsString(pChar)}')">
+                        <span>➕ Grant Access</span>
                     </button>
                 </div>
             `;
@@ -1154,7 +1182,11 @@ function renderPartnerModal(data) {
 
     let partnersHtml = "";
     if (partners.length === 0) {
-        partnersHtml = `<div class="partner-empty">No partners added to this house yet</div>`;
+        partnersHtml = `
+            <div class="partner-empty">
+                <div>🔑 No partners registered for this house</div>
+                <div style="font-size: 11px; margin-top: 4px; color: #7a6b57;">Grant house keys to nearby players from the left panel.</div>
+            </div>`;
     } else {
         partnersHtml = partners.map(p => {
             const pName = (typeof p === "object" && p.name) ? p.name : String(p);
@@ -1163,11 +1195,14 @@ function renderPartnerModal(data) {
             return `
                 <div class="partner-item">
                     <div class="partner-info">
-                        <span class="partner-icon">🤝</span>
-                        <span class="partner-name">${pName}</span>
+                        <span class="partner-icon">🔑</span>
+                        <div>
+                            <div class="partner-name">${escapeHtml(pName)}</div>
+                            <div class="partner-sub">Full House & Door Access</div>
+                        </div>
                     </div>
-                    <button class="btn-danger btn-sm" onclick="removePartnerAction(${houseId}, '${pName.replace(/'/g, "\\'")}', '${pSteam}', '${pChar}')">
-                        <span>🗑️ Remove</span>
+                    <button class="btn-revoke" onclick="removePartnerAction(${houseId}, '${escapeJsString(pName)}', '${escapeJsString(pSteam)}', '${escapeJsString(pChar)}')">
+                        <span>🗑️ Revoke Key</span>
                     </button>
                 </div>
             `;
@@ -1175,24 +1210,56 @@ function renderPartnerModal(data) {
     }
 
     container.innerHTML = `
-        <div class="modal-overlay">
-            <div class="modal-content partner-modal">
+        <div class="modal-overlay" onclick="handleOverlayClick(event)">
+            <div class="modal-content partner-modal" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <h2>🤝 House Partners — ${houseName}</h2>
-                    <button class="modal-close" onclick="closePartnerModalUI()">✕</button>
+                    <div>
+                        <h2>🤝 HOUSE PARTNERS MANAGEMENT</h2>
+                        <p>Grant or revoke house access keys for <strong>${escapeHtml(houseName)}</strong></p>
+                    </div>
+                    <button class="modal-close" onclick="closePartnerModalUI()" title="Close (ESC)">✕</button>
                 </div>
                 <div class="modal-body">
-                    <div class="partner-section">
-                        <h3>➕ Add Nearby Players (15m)</h3>
-                        <div class="partner-list">${nearbyHtml}</div>
+                    <div class="partner-stats-bar">
+                        <div class="partner-stat-card">
+                            <span class="partner-stat-icon">🏠</span>
+                            <div class="partner-stat-info">
+                                <div class="stat-title">Property</div>
+                                <div class="stat-val">${escapeHtml(houseName)}</div>
+                            </div>
+                        </div>
+                        <div class="partner-stat-card">
+                            <span class="partner-stat-icon">👥</span>
+                            <div class="partner-stat-info">
+                                <div class="stat-title">Active Keyholders</div>
+                                <div class="stat-val">${partners.length} Partner${partners.length !== 1 ? 's' : ''}</div>
+                            </div>
+                        </div>
+                        <div class="partner-stat-card">
+                            <span class="partner-stat-icon">🧭</span>
+                            <div class="partner-stat-info">
+                                <div class="stat-title">Nearby Companions</div>
+                                <div class="stat-val">${nearbyPlayers.length} Within 15m</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="partner-section">
-                        <h3>👥 Current House Partners (${partners.length})</h3>
-                        <div class="partner-list">${partnersHtml}</div>
+
+                    <div class="partner-grid">
+                        <div class="partner-section">
+                            <h3>➕ NEARBY PLAYERS (WITHIN 15M)</h3>
+                            <div class="partner-list">${nearbyHtml}</div>
+                        </div>
+                        <div class="partner-section">
+                            <h3>🔑 CURRENT HOUSE PARTNERS (${partners.length})</h3>
+                            <div class="partner-list">${partnersHtml}</div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn-secondary" onclick="closePartnerModalUI()">Close</button>
+                    <div class="modal-hint">
+                        <span>⌨️</span> Press <strong style="color:#C9A227;">[ESC]</strong> or click <strong>Close Journal</strong> to return to game
+                    </div>
+                    <button class="btn-secondary" onclick="closePartnerModalUI()">Close Journal</button>
                 </div>
             </div>
         </div>
@@ -1228,7 +1295,6 @@ function addPartnerAction(houseId, targetSource, targetName, targetSteam, target
             })
         });
     } catch(e) {}
-    closePartnerModalUI();
 }
 
 function removePartnerAction(houseId, pName, pSteam, pCharId) {
@@ -1246,8 +1312,16 @@ function removePartnerAction(houseId, pName, pSteam, pCharId) {
             })
         });
     } catch(e) {}
-    closePartnerModalUI();
 }
+
+window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" || e.code === "Escape") {
+        const partnerContainer = document.getElementById("partnerModalContainer");
+        if (partnerContainer && !partnerContainer.classList.contains("hidden")) {
+            closePartnerModalUI();
+        }
+    }
+});
 
 function renderNearbyPlayersSelect(players) {
     const container = document.getElementById("nearbyOwnerSelectContainer");

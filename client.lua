@@ -617,62 +617,9 @@ end)
 -- Open Partner Management Menu Event Handler
 RegisterNetEvent("coi_hm:openPartnerMenu", function(data)
     if not data or not data.houseId then return end
-    local houseId = data.houseId
-    local houseName = data.houseName or ("House #" .. houseId)
-    local partners = data.partners or {}
-    local nearbyPlayers = data.nearbyPlayers or {}
-
-    if lib and lib.registerContext and lib.showContext then
-        local options = {}
-
-        table.insert(options, {
-            title = "➕ Add Nearby Player as Partner",
-            description = #nearbyPlayers > 0 and ("Found " .. #nearbyPlayers .. " nearby player(s) within 15m") or "No nearby players found (within 15m)",
-            disabled = true
-        })
-
-        for _, p in ipairs(nearbyPlayers) do
-            local targetPlayer = p
-            table.insert(options, {
-                title = "👤 " .. (targetPlayer.name or ("Player #" .. targetPlayer.source)),
-                description = "Click to add as house partner",
-                icon = "user-plus",
-                onSelect = function()
-                    TriggerServerEvent("coi_hm:addPartner", { houseId = houseId, partner = targetPlayer })
-                end
-            })
-        end
-
-        table.insert(options, {
-            title = "👥 Current House Partners (" .. #partners .. ")",
-            description = #partners > 0 and "Click a partner below to remove them" or "No partners added yet",
-            disabled = true
-        })
-
-        for _, p in ipairs(partners) do
-            local partnerItem = p
-            local pName = (type(partnerItem) == "table" and partnerItem.name) or tostring(partnerItem)
-            table.insert(options, {
-                title = "👤 " .. pName,
-                description = "Click to remove partner access",
-                icon = "user-minus",
-                onSelect = function()
-                    TriggerServerEvent("coi_hm:removePartner", { houseId = houseId, partner = (type(partnerItem) == "table" and partnerItem or { name = partnerItem }) })
-                end
-            })
-        end
-
-        lib.registerContext({
-            id = "coi_hm_partners_" .. houseId,
-            title = "🤝 House Partners — " .. houseName,
-            options = options
-        })
-        lib.showContext("coi_hm_partners_" .. houseId)
-    else
-        SendNUIMessage({
-            action = "openPartnerModal",
-            data = data
-        })
-        SetNuiFocus(true, true)
-    end
+    SendNUIMessage({
+        action = "openPartnerModal",
+        data = data
+    })
+    SetNuiFocus(true, true)
 end)
