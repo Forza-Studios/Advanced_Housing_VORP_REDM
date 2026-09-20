@@ -300,9 +300,6 @@ function buildDashboard(houses, filter = "all", search = "") {
             <div class="nav-item ${currentPage === "houses" ? "active" : ""}" data-page="houses">
                 <span class="nav-icon">🏘️</span> Houses
             </div>
-            <div class="nav-item ${currentPage === "apartments" ? "active" : ""}" data-page="apartments">
-                <span class="nav-icon">🏢</span> Apartments
-            </div>
         </nav>
         <div class="sidebar-footer">
             <span>RedM VORP Housing</span>
@@ -311,7 +308,7 @@ function buildDashboard(houses, filter = "all", search = "") {
 
     <!-- Main Content -->
     <div class="main-content">
-        ${currentPage === "apartments" ? buildApartmentsView() : buildHousesView(houses, filter, search)}
+        ${buildHousesView(houses, filter, search)}
     </div>
     `;
 }
