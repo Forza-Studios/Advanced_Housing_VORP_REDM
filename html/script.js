@@ -22,8 +22,8 @@ function fmt(n) {
     return "$" + n.toLocaleString();
 }
 
-// Build the full dashboard HTML
-function buildDashboard(houses, filter = "all", search = "") {
+// View 1: Houses Catalog View
+function buildHousesView(houses, filter = "all", search = "") {
     // Filter by search
     let filtered = houses;
     if (search.trim()) {
@@ -37,26 +37,6 @@ function buildDashboard(houses, filter = "all", search = "") {
     const stats = computeStats(houses);
 
     return `
-    <!-- Sidebar -->
-    <div class="sidebar">
-        <div class="sidebar-brand">
-            <h2><span class="brand-icon">🏠</span> Housing</h2>
-        </div>
-        <nav class="sidebar-nav">
-            <div class="nav-item active" data-page="houses">
-                <span class="nav-icon">🏘️</span> Houses
-            </div>
-            <div class="nav-item" data-page="apartments">
-                <span class="nav-icon">🏢</span> Apartments
-            </div>
-        </nav>
-        <div class="sidebar-footer">
-            <span>RedM VORP Housing</span>
-        </div>
-    </div>
-
-    <!-- Main Content -->
-    <div class="main-content">
         <!-- Top Bar -->
         <div class="top-bar">
             <div class="top-bar-left">
@@ -158,18 +138,195 @@ function buildDashboard(houses, filter = "all", search = "") {
             <span>Showing ${filtered.length} of ${houses.length} houses</span>
             <button class="close-btn" id="closeBtnFooter">✕ Close</button>
         </div>
+    `;
+}
+
+// View 2: Apartments Catalog View
+function buildApartmentsView() {
+    return `
+        <!-- Top Bar -->
+        <div class="top-bar">
+            <div class="top-bar-left">
+                <h1>Apartments & Boarding Rooms</h1>
+                <button class="btn-primary" id="addApartmentBtn">
+                    <span>＋</span> Add Complex
+                </button>
+            </div>
+            <div class="top-bar-center">
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="apartmentSearchInput" placeholder="Search apartments by location or complex..." value="" />
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <button class="btn-secondary" id="refreshBtn" title="Refresh apartments from database">
+                    <span>🔄</span> Refresh
+                </button>
+                <button class="close-btn" id="closeBtn" title="Close Catalog">
+                    ✕
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="stats-row">
+            <div class="stat-card gold">
+                <div class="stat-label">Total Complexes</div>
+                <div class="stat-value">3</div>
+                <div class="stat-sub">Multi-unit buildings</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Available Units</div>
+                <div class="stat-value">12</div>
+                <div class="stat-sub">Ready for tenants</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Leased Units</div>
+                <div class="stat-value">8</div>
+                <div class="stat-sub">Occupied rooms</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Avg. Weekly Rent</div>
+                <div class="stat-value">$45.00</div>
+                <div class="stat-sub">Per unit lease</div>
+            </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="table-container">
+            <table class="house-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Apartment Complex</th>
+                        <th>Location</th>
+                        <th>Units</th>
+                        <th>Weekly Rent</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="col-id">#001</td>
+                        <td>
+                            <div class="house-name-cell">
+                                <div class="house-thumb">🏢</div>
+                                <div>
+                                    <span class="house-name-text">Saint Denis Grand Hotel Suites</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 6 Units | 📦 Shared Stash: 250kg</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>Saint Denis</td>
+                        <td>4 / 6 Rented</td>
+                        <td class="col-price">$75.00</td>
+                        <td><span class="status-badge owned">Active</span></td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="action-btn doors" title="Manage Units">🚪</button>
+                                <button class="action-btn edit" title="Edit Complex">✏️</button>
+                                <button class="action-btn delete" title="Delete">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="col-id">#002</td>
+                        <td>
+                            <div class="house-name-cell">
+                                <div class="house-thumb">🏢</div>
+                                <div>
+                                    <span class="house-name-text">Valentine Boarding House</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 4 Units | 📦 Shared Stash: 150kg</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>Valentine</td>
+                        <td>3 / 4 Rented</td>
+                        <td class="col-price">$35.00</td>
+                        <td><span class="status-badge owned">Active</span></td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="action-btn doors" title="Manage Units">🚪</button>
+                                <button class="action-btn edit" title="Edit Complex">✏️</button>
+                                <button class="action-btn delete" title="Delete">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="col-id">#003</td>
+                        <td>
+                            <div class="house-name-cell">
+                                <div class="house-thumb">🏢</div>
+                                <div>
+                                    <span class="house-name-text">Blackwater Saloon Rooms</span>
+                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">🚪 5 Units | 📦 Shared Stash: 200kg</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>Blackwater</td>
+                        <td>1 / 5 Rented</td>
+                        <td class="col-price">$50.00</td>
+                        <td><span class="status-badge owned">Active</span></td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="action-btn doors" title="Manage Units">🚪</button>
+                                <button class="action-btn edit" title="Edit Complex">✏️</button>
+                                <button class="action-btn delete" title="Delete">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Footer -->
+        <div class="table-footer">
+            <span>Showing 3 Apartment Complexes</span>
+            <button class="close-btn" id="closeBtnFooter">✕ Close</button>
+        </div>
+    `;
+}
+
+// Build the full dashboard HTML
+function buildDashboard(houses, filter = "all", search = "") {
+    return `
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-brand">
+            <h2><span class="brand-icon">🏠</span> Housing</h2>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-item ${currentPage === "houses" ? "active" : ""}" data-page="houses">
+                <span class="nav-icon">🏘️</span> Houses
+            </div>
+            <div class="nav-item ${currentPage === "apartments" ? "active" : ""}" data-page="apartments">
+                <span class="nav-icon">🏢</span> Apartments
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            <span>RedM VORP Housing</span>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        ${currentPage === "apartments" ? buildApartmentsView() : buildHousesView(houses, filter, search)}
     </div>
     `;
 }
 
 // ===== State =====
+let currentPage = "houses"; // Default tab: "houses", "apartments"
 let currentFilter = "all";
 let currentSearch = "";
 
 function renderDashboard() {
     const dashboard = document.getElementById("dashboard");
-    dashboard.innerHTML = buildDashboard(houseData, currentFilter, currentSearch);
-    attachEvents();
+    if (dashboard) {
+        dashboard.innerHTML = buildDashboard(houseData, currentFilter, currentSearch);
+        attachEvents();
+    }
 }
 
 function attachEvents() {
@@ -270,8 +427,11 @@ function attachEvents() {
     // Nav items
     document.querySelectorAll(".nav-item").forEach(item => {
         item.addEventListener("click", () => {
-            document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-            item.classList.add("active");
+            const page = item.getAttribute("data-page");
+            if (page && page !== currentPage) {
+                currentPage = page;
+                renderDashboard();
+            }
         });
     });
 }
