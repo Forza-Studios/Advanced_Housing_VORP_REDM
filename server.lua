@@ -66,6 +66,14 @@ local function GetPlayerOwnerId(src)
     return info.name
 end
 
+-- Central Helper for Left-Side Notifications (ox_lib:notify position = "top-left")
+local function SendNotify(src, payload)
+    if type(payload) == "table" then
+        payload.position = "top-left"
+    end
+    TriggerClientEvent("ox_lib:notify", src, payload)
+end
+
 -- ===== SQL Auto-Executor & Schema Migration (Normalized Architecture) =====
 CreateThread(function()
     while GetResourceState("oxmysql") ~= "started" do
@@ -182,7 +190,7 @@ RegisterNetEvent("coi_hm:requestOpen", function()
         end
     end
 
-    TriggerClientEvent("ox_lib:notify", src, {
+    SendNotify( src, {
         title = "Housing Creator",
         description = "Access denied.",
         type = "error"
@@ -379,7 +387,7 @@ RegisterNetEvent("coi_hm:createHouse", function(data)
     }, function(insertId)
         if insertId then
             print(("^2[coi_hm]^7 Created new house #%s (OwnerCharId: '%s', Status: '%s', Price: $%s, Stash: %skg)."):format(insertId, ownerCharId or "None", status, price, stashLimit))
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = ("House saved! OwnerCharId: %s (Stash: %skg)"):format(ownerCharId or "For Sale", stashLimit),
                 type = "success"
@@ -396,7 +404,7 @@ RegisterNetEvent("coi_hm:deleteHouse", function(houseId)
     if not houseId then return end
 
     MySQL.query("DELETE FROM houses WHERE id = ?", { houseId }, function()
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = "House #" .. houseId .. " deleted.",
             type = "info"
@@ -496,7 +504,7 @@ RegisterNetEvent("coi_hm:updateHouse", function(data)
                 end)
             end
 
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = ("House #%s updated successfully!"):format(houseId),
                 type = "success"
@@ -516,7 +524,7 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
     local buyerCharId = myInfo.charIdentifier
 
     if not buyerCharId then
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = "You must have an active character to buy a house.",
             type = "error"
@@ -530,7 +538,7 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
 
         local isForSale = (not house.owner_charid or house.owner_charid == "" or house.status == "available")
         if not isForSale then
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = "This house is not for sale.",
                 type = "error"
@@ -549,7 +557,7 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
                 if character then
                     local currentMoney = tonumber(character.money) or 0
                     if currentMoney < price then
-                        TriggerClientEvent("ox_lib:notify", src, {
+                        SendNotify( src, {
                             title = "Housing Manager",
                             description = ("Insufficient cash! Required: $%s (You have: $%s)"):format(price, currentMoney),
                             type = "error"
@@ -576,7 +584,7 @@ RegisterNetEvent("coi_hm:buyHouse", function(houseId)
         }, function()
             MySQL.query("DELETE FROM house_partners WHERE house_id = ?", { houseId }, function()
                 print(("^2[coi_hm]^7 Character '%s' (Src: %s) bought house #%s ('%s') for $%s."):format(buyerCharId, src, houseId, house.name, price))
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = ("Congratulations! You purchased '%s' for $%s!"):format(house.name, price),
                     type = "success"
@@ -603,7 +611,7 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
     if not houseId then return end
     local myInfo = GetPlayerOwnerInfo(src)
     if not myInfo.charIdentifier then
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = "No active character found.",
             type = "error"
@@ -617,7 +625,7 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
 
         IsPlayerOwnerOrPartner(house, myInfo.charIdentifier, function(isOwnerOrPartner)
             if not isOwnerOrPartner then
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = "You are not an owner or partner of this house.",
                     type = "error"
@@ -678,7 +686,7 @@ RegisterNetEvent("coi_hm:toggleDoorLock", function(data)
 
             MySQL.query("UPDATE houses SET locked = ?, doors = ? WHERE id = ?", { mainDoorLocked, doorsJson, houseId }, function()
                 print(("^2[coi_hm]^7 CharId '%s' toggled door #%s lock state on house #%s to %s."):format(myInfo.charIdentifier, targetDoorHash or "all", houseId, newDoorStatusStr))
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = ("Door %s!"):format(newDoorStatusStr),
                     type = (newDoorStatusStr == "Locked") and "error" or "success"
@@ -721,7 +729,7 @@ RegisterNetEvent("coi_hm:addDoorToHouse", function(data)
         local newHash = tostring(newDoor.doorHash)
         for _, d in ipairs(doors) do
             if tostring(d.doorHash) == newHash then
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = "This door is already attached to this house.",
                     type = "error"
@@ -743,7 +751,7 @@ RegisterNetEvent("coi_hm:addDoorToHouse", function(data)
         local doorsJson = json.encode(doors)
         MySQL.query("UPDATE houses SET doors = ? WHERE id = ?", { doorsJson, houseId }, function()
             print(("^2[coi_hm]^7 Attached door #%s to House #%s."):format(newHash, houseId))
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = ("Door #%s attached to House #%s!"):format(newHash, houseId),
                 type = "success"
@@ -777,7 +785,7 @@ RegisterNetEvent("coi_hm:removeDoorFromHouse", function(data)
         end
 
         if #updatedDoors == 0 then
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = "Cannot remove the last remaining door of a house.",
                 type = "error"
@@ -795,7 +803,7 @@ RegisterNetEvent("coi_hm:removeDoorFromHouse", function(data)
             doorsJson, mainDoor.doorHash, mainDoor.modelHash, mainDoor.modelName, houseId
         }, function()
             print(("^2[coi_hm]^7 Detached door #%s from House #%s."):format(removeHash, houseId))
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = ("Door detached from House #%s!"):format(houseId),
                 type = "info"
@@ -819,7 +827,7 @@ RegisterNetEvent("coi_hm:setStashCoords", function(data)
         x, y, z, houseId
     }, function()
         print(("^2[coi_hm]^7 Updated stash position for House #%s to (%s, %s, %s)."):format(houseId, x, y, z))
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = ("Stash position set for House #%s!"):format(houseId),
             type = "success"
@@ -838,7 +846,7 @@ RegisterNetEvent("coi_hm:removeStashCoords", function(data)
         houseId
     }, function()
         print(("^2[coi_hm]^7 Removed stash position for House #%s."):format(houseId))
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = ("Stash location removed for House #%s!"):format(houseId),
             type = "info"
@@ -855,7 +863,7 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
     local myInfo = GetPlayerOwnerInfo(src)
 
     if not myInfo.charIdentifier then
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = "No active character loaded.",
             type = "error"
@@ -869,7 +877,7 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
 
         IsPlayerOwnerOrPartner(house, myInfo.charIdentifier, function(isOwnerOrPartner)
             if not isOwnerOrPartner then
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = "Storage access is restricted to house owners and partners.",
                     type = "error"
@@ -900,7 +908,7 @@ RegisterNetEvent("coi_hm:openStash", function(houseId)
 
                 exports.vorp_inventory:openInventory(src, inventoryId)
             else
-                TriggerClientEvent("ox_lib:notify", src, {
+                SendNotify( src, {
                     title = "Housing Manager",
                     description = "vorp_inventory is not running.",
                     type = "error"
@@ -924,7 +932,7 @@ RegisterNetEvent("coi_hm:requestManagePartners", function(data)
         local house = result[1]
 
         if not IsPlayerHouseOwner(house, myInfo.charIdentifier) then
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = "Only the house owner can manage house partners.",
                 type = "error"
@@ -1006,7 +1014,7 @@ RegisterNetEvent("coi_hm:addPartner", function(data)
     end
 
     if not targetCharId or targetCharId == "" then
-        TriggerClientEvent("ox_lib:notify", src, {
+        SendNotify( src, {
             title = "Housing Manager",
             description = "Could not resolve partner character ID.",
             type = "error"
@@ -1028,7 +1036,7 @@ RegisterNetEvent("coi_hm:addPartner", function(data)
             houseId, tostring(targetCharId), tostring(myInfo.charIdentifier)
         }, function()
             print(("^2[coi_hm]^7 Added partner charId '%s' to House #%s."):format(targetCharId, houseId))
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = "Added player as a house partner!",
                 type = "success"
@@ -1060,7 +1068,7 @@ RegisterNetEvent("coi_hm:removePartner", function(data)
             houseId, tostring(removeCharId)
         }, function()
             print(("^2[coi_hm]^7 Removed partner charId '%s' from House #%s."):format(removeCharId, houseId))
-            TriggerClientEvent("ox_lib:notify", src, {
+            SendNotify( src, {
                 title = "Housing Manager",
                 description = "Removed player from house partners.",
                 type = "info"

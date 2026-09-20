@@ -1349,3 +1349,29 @@ function playLockSFX(isLocked) {
     } catch (e) {}
 }
 
+// ===== Left-Side Toast Notification Handler =====
+function showNotification(message, type = "info") {
+    let container = document.getElementById("toastContainer");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toastContainer";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = `rdr-toast ${type}`;
+    const icon = type === "success" ? "📜" : (type === "error" ? "⚠️" : "🔔");
+    toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(message)}</span>`;
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("show");
+    });
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+

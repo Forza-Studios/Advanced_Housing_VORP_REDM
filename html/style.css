@@ -1124,3 +1124,52 @@ select option:checked, select option:hover {
     background-color: #28201a !important;
     color: #C9A227 !important;
 }
+
+/* ===== RDR2 Left-side Parchment Toast Notifications ===== */
+#toastContainer {
+    position: fixed;
+    top: 35px;
+    left: 35px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 999999;
+    pointer-events: none;
+}
+
+.rdr-toast {
+    background: #191410;
+    border: 1.5px solid #8A6A3A;
+    border-left: 4px solid #C9A227;
+    border-radius: 6px;
+    padding: 12px 18px;
+    color: #F5E6C8;
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(201, 162, 39, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateX(-35px);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
+}
+
+.rdr-toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.rdr-toast.success {
+    border-left-color: #4a9e6e;
+}
+
+.rdr-toast.error {
+    border-left-color: #a03030;
+}
+
+.rdr-toast.info {
+    border-left-color: #C9A227;
+}
